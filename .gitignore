@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+
+# PDFs / test documents
+*.pdf
+
+# Generated reports
+*_report.json
+pdf_fonts.json
+known_fonts.json
