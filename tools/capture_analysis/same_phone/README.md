@@ -39,7 +39,7 @@ python same_phone_pdf_check.py "C:\path\to\document.pdf" --output-dir "C:\path\t
 In this Codex workspace:
 
 ```powershell
-C:\Users\SAO-DAC\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe same_phone_pdf_check.py "C:\path\to\document.pdf" --keep-images
+python same_phone_pdf_check.py "C:\path\to\document.pdf" --keep-images
 ```
 
 Or drag a PDF onto:

@@ -33,7 +33,7 @@ run_scanner_noise_check.bat
 In this Codex workspace, the bundled Python can be used directly:
 
 ```powershell
-C:\Users\SAO-DAC\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe scanner_noise_fingerprint_check.py "C:\path\to\input.pdf" --output-dir "C:\path\to\report"
+python scanner_noise_fingerprint_check.py "C:\path\to\input.pdf" --output-dir "C:\path\to\report"
 ```
 
 Useful options:

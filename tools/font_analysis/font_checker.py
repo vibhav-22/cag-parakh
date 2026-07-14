@@ -309,14 +309,14 @@ def main():
     # store
     p_store = sub.add_parser("store", help="Extract fonts from correct PDF(s) and save baseline.")
     p_store.add_argument("pdfs", nargs="+", metavar="PDF", help="Path(s) to known-correct PDF(s)")
-    p_store.add_argument("--baseline", default="baseline_fonts.json", metavar="FILE",
-                         help="Where to save the baseline (default: baseline_fonts.json)")
+    p_store.add_argument("--baseline", default="data/baselines/baseline_fonts.json", metavar="FILE",
+                         help="Where to save the baseline (default: data/baselines/baseline_fonts.json)")
 
     # check
     p_check = sub.add_parser("check", help="Check a PDF template against the stored baseline.")
     p_check.add_argument("pdf", metavar="PDF", help="Path to the PDF to check")
-    p_check.add_argument("--baseline", default="baseline_fonts.json", metavar="FILE",
-                         help="Baseline JSON to compare against (default: baseline_fonts.json)")
+    p_check.add_argument("--baseline", default="data/baselines/baseline_fonts.json", metavar="FILE",
+                         help="Baseline JSON to compare against (default: data/baselines/baseline_fonts.json)")
     p_check.add_argument("--output", default="font_check_report.json", metavar="FILE",
                          help="Where to save the report (default: font_check_report.json)")
 

@@ -18,7 +18,7 @@ It also supports direct image files such as JPG and PNG, which is useful when a 
 Use Python 3.10 or newer.
 
 ```powershell
-cd C:\Users\SAO-DAC\Documents\Codex\2026-07-08\i\outputs\qr_pdf_toolkit
+cd tools\qr_analysis
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -47,7 +47,7 @@ pip install --upgrade certifi
 ## Script 1: Check Whether QR Exists
 
 ```powershell
-python .\qr_exists.py "C:\Users\SAO-DAC\Downloads\mohit birth certificate.pdf" --out qr_report.json --save-crops qr_crops
+python .\qr_exists.py "C:\path\to\document.pdf" --out qr_report.json --save-crops qr_crops
 ```
 
 Useful options:
@@ -62,25 +62,25 @@ The output includes `qr_found`, `qr_count`, decoded payloads, page number, DPI, 
 ## Script 2: Verify QR Details Against Document
 
 ```powershell
-python .\verify_qr_against_pdf.py "C:\Users\SAO-DAC\Downloads\mohit birth certificate.pdf" --out verify_report.json --save-crops qr_crops --gpu auto
+python .\verify_qr_against_pdf.py "C:\path\to\document.pdf" --out verify_report.json --save-crops qr_crops --gpu auto
 ```
 
 For documents that normally contain one QR code, this faster command stops scanning after the first QR is found:
 
 ```powershell
-python .\verify_qr_against_pdf.py "C:\Users\SAO-DAC\Downloads\mohit birth certificate.pdf" --out verify_report.json --gpu auto --stop-after-first
+python .\verify_qr_against_pdf.py "C:\path\to\document.pdf" --out verify_report.json --gpu auto --stop-after-first
 ```
 
 If the URL opens but the report only shows a generic title such as `Civil Registration System`, force browser rendering:
 
 ```powershell
-python .\verify_qr_against_pdf.py "C:\Users\SAO-DAC\Downloads\mohit birth certificate.pdf" --out verify_report.json --gpu auto --stop-after-first --url-mode browser
+python .\verify_qr_against_pdf.py "C:\path\to\document.pdf" --out verify_report.json --gpu auto --stop-after-first --url-mode browser
 ```
 
 If the QR URL still fails with `CERTIFICATE_VERIFY_FAILED`, you can retry without TLS certificate verification. The report will mark `tls_verified` as `false`:
 
 ```powershell
-python .\verify_qr_against_pdf.py "C:\Users\SAO-DAC\Downloads\mohit birth certificate.pdf" --out verify_report.json --allow-insecure-url
+python .\verify_qr_against_pdf.py "C:\path\to\document.pdf" --out verify_report.json --allow-insecure-url
 ```
 
 For Hindi plus English OCR:

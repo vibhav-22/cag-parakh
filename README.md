@@ -2,9 +2,14 @@
 
 Reusable PDF screening tools for document capture consistency checks.
 
-## Toolkits
+## Repository layout
 
-- `outputs/scanner_noise_fingerprint_toolkit`: checks scanner/camera capture-source consistency across PDF pages and regions.
-- `outputs/same_phone_pdf_check_toolkit`: checks whether PDF pages are compatible with being captured from the same phone or capture workflow.
+- `tools/font_analysis`: font and template consistency checks.
+- `tools/ink_analysis`: overwriting and stroke-thickness checks.
+- `tools/qr_analysis`: QR detection and document cross-checking.
+- `tools/capture_analysis`: scanner-noise and same-phone consistency checks.
+- `data/baselines`: versioned detector reference data.
+
+The analysis tools remain command-line programs. `backend/` and `frontend/` can be added as separate application layers without mixing web code into detector logic.
 
 These tools produce screening signals only. They should be combined with visual review, OCR, QR, metadata, and document-template checks before drawing conclusions.

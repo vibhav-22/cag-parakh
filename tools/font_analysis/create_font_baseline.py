@@ -89,7 +89,7 @@ def main():
         )
     )
     parser.add_argument("pdf_paths", nargs="+", help="Path(s) to genuine reference PDF(s)")
-    parser.add_argument("--output", default="baseline_fonts.json", help="Output baseline JSON")
+    parser.add_argument("--output", default="data/baselines/baseline_fonts.json", help="Output baseline JSON")
 
     args = parser.parse_args()
 
