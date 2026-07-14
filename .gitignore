@@ -1,3 +1,14 @@
+# Virtual environments and Python cache artifacts
+.venv/
+__pycache__/
+*.py[cod]
+
+# Existing QR toolkit generated artifacts
+qr_pdf_toolkit/.venv/
+qr_pdf_toolkit/__pycache__/
+qr_pdf_toolkit/qr_crops/
+qr_pdf_toolkit/*_report.json
+
 # Generated analysis outputs and local test data
 work/
 outputs/*_diagnosis/
@@ -11,10 +22,6 @@ outputs/merged_pdf_diagnosis/
 outputs/merged_pdf_page_only_recheck/
 outputs/copy_pdf_recheck_v012/
 outputs/same_phone_test_reports/
-
-# Python/cache artifacts
-__pycache__/
-*.py[cod]
 
 # Local app/session folders
 .agents/
