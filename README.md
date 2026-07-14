@@ -7,6 +7,8 @@ Reusable PDF screening tools for document capture consistency checks.
 - `tools/font_analysis`: extracts embedded font objects, typefaces, and usage details.
 - `tools/ink_analysis`: overwriting and stroke-thickness checks.
 - `tools/qr_analysis`: QR detection and document cross-checking.
+- `tools/moire_analysis`: frequency-domain moire and recapture checks.
+- `tools/metadata_analysis`: PDF metadata and structural-editing checks.
 - `tools/readability_analysis`: PDF readability and OCR-quality checks.
 - `tools/tamper_analysis`: multi-signal local tamper detection.
 - `tools/capture_analysis`: scanner-noise and same-phone consistency checks.
