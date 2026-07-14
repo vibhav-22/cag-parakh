@@ -1,0 +1,28 @@
+# Generated analysis outputs and local test data
+work/
+outputs/*_diagnosis/
+outputs/*_recheck*/
+outputs/*_test_reports/
+outputs/report_diagnosis_overlays/
+outputs/real_pdf_recheck/
+outputs/phone_photo_diagnosis/
+outputs/copy_pdf_diagnosis/
+outputs/merged_pdf_diagnosis/
+outputs/merged_pdf_page_only_recheck/
+outputs/copy_pdf_recheck_v012/
+outputs/same_phone_test_reports/
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local app/session folders
+.agents/
+.codex/
+
+# Keep reusable deliverable toolkits tracked
+!outputs/
+!outputs/scanner_noise_fingerprint_toolkit/
+!outputs/scanner_noise_fingerprint_toolkit/**
+!outputs/same_phone_pdf_check_toolkit/
+!outputs/same_phone_pdf_check_toolkit/**
