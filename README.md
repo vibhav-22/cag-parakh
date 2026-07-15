@@ -17,6 +17,17 @@ The analysis tools remain command-line programs. `backend/` and `frontend/` can 
 
 These tools produce screening signals only. They should be combined with visual review, OCR, QR, metadata, and document-template checks before drawing conclusions.
 
+## Backend API
+
+`backend/` provides a FastAPI layer for uploading PDFs and polling asynchronous screening jobs. Install and run it with:
+
+```powershell
+python -m pip install -r backend/requirements.txt
+python -m uvicorn backend.app:app --reload
+```
+
+The API documentation is available at `http://127.0.0.1:8000/docs`. See `backend/README.md` for endpoints and usage.
+
 ## Extract fonts from a PDF
 
 ```powershell

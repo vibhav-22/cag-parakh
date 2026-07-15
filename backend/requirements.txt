@@ -1,0 +1,14 @@
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+python-multipart>=0.0.9,<1.0
+# Dependencies used by the metadata, QR, and ink analyzers exposed by this API.
+PyMuPDF>=1.24.0
+numpy>=1.26.0
+opencv-python>=4.10.0
+zxing-cpp>=2.2.0
+Pillow>=10.0.0
+scipy>=1.11.0
+pypdf>=4.0.0
+matplotlib>=3.8.0
+pdfplumber>=0.11.0
+pytesseract>=0.3.10

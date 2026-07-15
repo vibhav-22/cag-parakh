@@ -33,3 +33,4 @@ outputs/same_phone_test_reports/
 !outputs/scanner_noise_fingerprint_toolkit/**
 !outputs/same_phone_pdf_check_toolkit/
 !outputs/same_phone_pdf_check_toolkit/**
+backend/data/

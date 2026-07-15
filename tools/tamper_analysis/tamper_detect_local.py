@@ -26,9 +26,11 @@
 """
 
 import argparse
+import json
 import os
 import sys
 import glob
+import tempfile
 import traceback
 from datetime import datetime
 
@@ -87,10 +89,18 @@ def ela_analysis(img_bgr: np.ndarray,
     and re-saved at a *different* quality will show higher error levels
     (appear brighter in the output heatmap).
     """
-    tmp = "/tmp/_ela_temp.jpg"
     pil_img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-    pil_img.save(tmp, "JPEG", quality=quality)
-    reloaded = Image.open(tmp)
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+        tmp = temp_file.name
+    try:
+        pil_img.save(tmp, "JPEG", quality=quality)
+        with Image.open(tmp) as reloaded_file:
+            reloaded = reloaded_file.convert("RGB").copy()
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
     diff = ImageChops.difference(pil_img, reloaded)
     r, g, b = diff.split()
@@ -415,6 +425,51 @@ def generate_report(pdf_path: str, output_dir: str) -> tuple:
     plt.close()
     print(f"  Report → {out_path}")
 
+    height, width = img_bgr.shape[:2]
+    risk = "high" if score >= 60 else "medium" if score >= 30 else "low"
+    regions = []
+    for patch in white_patches:
+        x, y, w, h = patch["bbox"]
+        regions.append({
+            "page": 1,
+            "kind": "white_patch",
+            "label": "Possible pasted or corrected area",
+            "severity": risk,
+            "reason": "An unusually uniform bright patch was detected in this area.",
+            "bbox_normalized": {
+                "x0": x / width,
+                "y0": y / height,
+                "x1": (x + w) / width,
+                "y1": (y + h) / height,
+            },
+        })
+    for anomaly in noise_anom:
+        row, col = anomaly["grid_pos"]
+        regions.append({
+            "page": 1,
+            "kind": "noise_anomaly",
+            "label": "Noise inconsistency",
+            "severity": risk,
+            "reason": anomaly["reason"],
+            "bbox_normalized": {
+                "x0": col / 10,
+                "y0": row / 10,
+                "x1": (col + 1) / 10,
+                "y1": (row + 1) / 10,
+            },
+        })
+
+    structured_path = os.path.join(output_dir, f"{name}_tamper_analysis.json")
+    with open(structured_path, "w", encoding="utf-8") as structured_file:
+        json.dump({
+            "status": "completed",
+            "score": score,
+            "verdict": verdict,
+            "risk": risk,
+            "reasons": reasons,
+            "regions": regions,
+        }, structured_file, indent=2, ensure_ascii=False)
+
     return out_path, score, verdict, reasons
 
 
@@ -508,6 +563,11 @@ Examples:
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
     args = parse_args()
 
     # Collect PDF paths
