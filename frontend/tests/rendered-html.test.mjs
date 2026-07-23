@@ -12,13 +12,14 @@ async function render() {
   );
 }
 
-test("renders the document review workspace", async () => {
+test("renders the access shell on the server", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Document Suspicion System/);
-  assert.match(html, /New document review/);
-  assert.match(html, /No review is open/);
-  assert.match(html, /Run document analysis/);
+  assert.match(html, /Parakh/);
+  // The workspace is gated behind a client-side session check, so the server
+  // paints the access shell first to avoid flashing the tool before auth
+  // resolves. Full workspace markup is asserted from source in ui-contract.
+  assert.match(html, /Checking access/);
   assert.doesNotMatch(html, /codex-preview/);
 });

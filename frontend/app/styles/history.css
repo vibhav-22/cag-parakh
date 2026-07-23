@@ -1,0 +1,378 @@
+/* ============================================================
+   Route styles for /history — the case library.
+
+   Identity: a full-width scannable ledger. Not cards, not a grid.
+   The header band is a search field plus filter rails, which is
+   what tells you at a glance that this room is for finding things
+   rather than for making them.
+
+   Every selector is scoped under .app[data-route="history"].
+   Semantic palette only: violet = action/attention, teal = clear,
+   rose = critical.
+   ============================================================ */
+
+/* ---- Header band: search + filters ------------------------ */
+
+.app[data-route="history"] .hist-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px 16px;
+}
+
+.app[data-route="history"] .hist-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--route-panel) 80%, #000);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.app[data-route="history"] .hist-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--route-panel);
+}
+.app[data-route="history"] .hist-search svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--subtle);
+}
+.app[data-route="history"] .hist-search:focus-within svg { color: var(--accent); }
+.app[data-route="history"] .hist-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  outline: none;
+}
+.app[data-route="history"] .hist-search input::placeholder { color: var(--subtle); }
+.app[data-route="history"] .hist-search input::-webkit-search-cancel-button { display: none; }
+.app[data-route="history"] .hist-search-clear {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.app[data-route="history"] .hist-search-clear:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.app[data-route="history"] .hist-selects { display: flex; gap: 10px; }
+.app[data-route="history"] .hist-selects label { display: grid; gap: 4px; }
+.app[data-route="history"] .hist-selects span {
+  color: var(--subtle);
+  font: 650 9px/1 var(--font-geist-mono), monospace;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.app[data-route="history"] .hist-selects select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--route-panel) 80%, #000);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+.app[data-route="history"] .hist-selects select:hover { color: var(--ink); border-color: var(--line-strong); }
+.app[data-route="history"] .hist-selects option { background: var(--route-panel); color: var(--ink); }
+
+.app[data-route="history"] .hist-segments {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.app[data-route="history"] .hist-segments button {
+  padding: 6px 11px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+.app[data-route="history"] .hist-segments button:hover { color: var(--ink); border-color: var(--line-strong); }
+.app[data-route="history"] .hist-segments button.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.app[data-route="history"] .hist-reset {
+  margin-left: auto;
+  border-color: transparent !important;
+  color: var(--accent) !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- Result meta ------------------------------------------ */
+
+.app[data-route="history"] .hist-results { padding-top: 4px; }
+.app[data-route="history"] .hist-count {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 2px 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.app[data-route="history"] .hist-count strong { color: var(--ink); font-weight: 700; }
+.app[data-route="history"] .hist-count em {
+  color: var(--subtle);
+  font-size: 10.5px;
+  font-style: normal;
+}
+
+/* ---- The ledger -------------------------------------------
+   Full-bleed rows with alternating panels. Medium density: one
+   line of subject, one of context, never a card. --------- */
+
+.app[data-route="history"] .hist-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--route-line);
+  border-bottom: 1px solid var(--route-line);
+}
+.app[data-route="history"] .hist-rows > li + li { border-top: 1px solid color-mix(in srgb, var(--route-line) 65%, transparent); }
+.app[data-route="history"] .hist-rows > li:nth-child(even) .case-row { background: var(--route-panel); }
+
+.app[data-route="history"] .case-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 150px 92px minmax(140px, 1fr) minmax(150px, 1.1fr) 74px 22px;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 16px;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.app[data-route="history"] .case-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.app[data-route="history"] .case-row:hover,
+.app[data-route="history"] .case-row:focus-visible {
+  background: color-mix(in srgb, var(--accent) 9%, var(--route-surface));
+}
+.app[data-route="history"] .case-row:hover::before,
+.app[data-route="history"] .case-row:focus-visible::before { opacity: 1; }
+
+.app[data-route="history"] .case-when { display: grid; gap: 2px; min-width: 0; }
+.app[data-route="history"] .case-when strong { color: var(--ink); font-size: 13px; font-weight: 660; letter-spacing: -.01em; }
+.app[data-route="history"] .case-when small { color: var(--muted); font-size: 10.5px; }
+
+.app[data-route="history"] .case-docs { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.app[data-route="history"] .case-docs strong {
+  color: var(--ink);
+  font: 620 15px/1 var(--font-geist-mono), monospace;
+}
+.app[data-route="history"] .case-docs small { color: var(--muted); font-size: 10.5px; }
+
+.app[data-route="history"] .case-signal { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app[data-route="history"] .case-progress {
+  flex: 1;
+  max-width: 90px;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+.app[data-route="history"] .case-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 240ms var(--ease-out);
+}
+
+.app[data-route="history"] .case-review { display: grid; gap: 2px; min-width: 0; }
+.app[data-route="history"] .case-review strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app[data-route="history"] .case-review small { color: var(--muted); font-size: 10.5px; }
+.app[data-route="history"] .case-muted { color: var(--subtle); }
+
+.app[data-route="history"] .case-ref {
+  color: var(--subtle);
+  font: 600 10.5px/1 var(--font-geist-mono), monospace;
+  letter-spacing: .04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app[data-route="history"] .case-go {
+  color: var(--subtle);
+  font-size: 13px;
+  text-align: right;
+  transition: color 150ms ease, transform 150ms var(--ease-out);
+}
+.app[data-route="history"] .case-row:hover .case-go { color: var(--accent); transform: translateX(2px); }
+
+/* ---- Loading ---------------------------------------------- */
+
+.app[data-route="history"] .hist-loading { padding-top: 18px; }
+.app[data-route="history"] .hist-loading-copy {
+  display: block;
+  padding-bottom: 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.app[data-route="history"] .hist-skeleton {
+  display: grid;
+  grid-template-columns: 150px 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 18px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--route-line) 65%, transparent);
+}
+.app[data-route="history"] .hist-skeleton:nth-child(odd) { background: var(--route-panel); }
+.app[data-route="history"] .hist-skeleton i {
+  height: 9px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ink) 7%, transparent) 30%, color-mix(in srgb, var(--ink) 14%, transparent) 50%, color-mix(in srgb, var(--ink) 7%, transparent) 70%);
+  background-size: 260% 100%;
+  animation: hist-shimmer 1.3s linear infinite;
+}
+@keyframes hist-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
+/* ---- Empty / error states --------------------------------- */
+
+.app[data-route="history"] .hist-state {
+  margin: 26px auto;
+  max-width: 60ch;
+  padding: 34px 30px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-md);
+  background: var(--route-surface);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.app[data-route="history"] .hist-state.narrow { margin: 14px auto; padding: 28px 26px; }
+.app[data-route="history"] .hist-state.error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, var(--route-surface));
+}
+.app[data-route="history"] .hist-state-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 17px;
+}
+.app[data-route="history"] .hist-state strong { color: var(--ink); font-size: 15px; font-weight: 680; letter-spacing: -.015em; }
+.app[data-route="history"] .hist-state p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.app[data-route="history"] .hist-action {
+  margin-top: 6px;
+  padding: 9px 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 680;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 140ms var(--ease-out);
+}
+.app[data-route="history"] .hist-action:hover { border-color: var(--accent); transform: translateY(-1px); }
+.app[data-route="history"] .hist-action.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #160f22;
+}
+.app[data-route="history"] .hist-action.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* ---- Responsive -------------------------------------------
+   1280: full ledger. 900: reference and arrow drop, review moves
+   under the subject. 430: the row becomes two stacked lines.
+   The page body never scrolls sideways. ------------------- */
+
+@media (max-width: 1080px) {
+  .app[data-route="history"] .case-row {
+    grid-template-columns: 140px 84px minmax(120px, 1fr) minmax(120px, 1fr) 22px;
+  }
+  .app[data-route="history"] .case-ref { display: none; }
+}
+
+@media (max-width: 900px) {
+  .app[data-route="history"] .hist-controls { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .app[data-route="history"] .hist-selects { flex-wrap: wrap; }
+  .app[data-route="history"] .hist-selects label { flex: 1 1 150px; }
+  .app[data-route="history"] .hist-selects select { width: 100%; }
+  .app[data-route="history"] .case-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 14px;
+    padding: 14px;
+  }
+  .app[data-route="history"] .case-when { grid-column: 1; }
+  .app[data-route="history"] .case-signal { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .app[data-route="history"] .case-docs { grid-column: 1; grid-row: 2; }
+  .app[data-route="history"] .case-review { grid-column: 2; grid-row: 2; justify-items: end; text-align: right; }
+  .app[data-route="history"] .case-go { display: none; }
+  .app[data-route="history"] .hist-skeleton { grid-template-columns: 140px minmax(0, 1fr); }
+  .app[data-route="history"] .hist-skeleton i:last-child { display: none; }
+}
+
+@media (max-width: 520px) {
+  .app[data-route="history"] .hist-segments { gap: 5px; }
+  .app[data-route="history"] .hist-segments button { padding: 5px 9px; font-size: 10.5px; }
+  .app[data-route="history"] .hist-reset { margin-left: 0; }
+  .app[data-route="history"] .case-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
+  .app[data-route="history"] .case-review { grid-column: 1 / -1; grid-row: 3; justify-items: start; text-align: left; }
+  .app[data-route="history"] .case-review strong { white-space: normal; }
+  .app[data-route="history"] .hist-state { padding: 26px 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-route="history"] .hist-skeleton i { animation: none; }
+  .app[data-route="history"] .case-row,
+  .app[data-route="history"] .case-row::before,
+  .app[data-route="history"] .case-go,
+  .app[data-route="history"] .case-progress i,
+  .app[data-route="history"] .hist-action,
+  .app[data-route="history"] .hist-search { transition-duration: 1ms; }
+  .app[data-route="history"] .case-row:hover .case-go { transform: none; }
+  .app[data-route="history"] .hist-action:hover { transform: none; }
+}

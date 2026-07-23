@@ -1,0 +1,434 @@
+/* ============================================================
+   Route styles for /settings. Every selector is scoped under
+   .app[data-route="settings"] — nothing here can leak.
+
+   The room: a 720px centred column of quiet, well-separated
+   panels. This is the only place in Parakh with no dense grid,
+   no live data, and no time pressure, and it should feel that
+   way. Space is the design.
+
+   Shared classnames from globals.css (.setting-group,
+   .analyzer-switch, .primary-button, .text-button,
+   .feedback-toast) are reused as-is and only re-tuned here —
+   most of them were sized for a 400px sidebar and are far too
+   small for this column.
+   ============================================================ */
+
+/* ---- Header band: section navigation ----------------------
+   Every other route fills this band with progress, search, or a
+   verdict. Settings fills it with a place to jump to, which is
+   the fastest way to tell this room apart at a glance.
+   --------------------------------------------------------- */
+
+.app[data-route="settings"] .settings-sectionnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 -6px;
+}
+
+.app[data-route="settings"] .settings-sectionnav a {
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 660;
+  letter-spacing: -.005em;
+  text-decoration: none;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.app[data-route="settings"] .settings-sectionnav a:hover { color: var(--ink); }
+
+.app[data-route="settings"] .settings-sectionnav a[aria-current] {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-soft);
+}
+
+.app[data-route="settings"] .settings-sectionnav a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 40%, transparent);
+  outline-offset: 2px;
+}
+
+/* Room for the sticky save bar so the last panel is never trapped
+   under it, and a scroll offset so jumped-to headings clear the
+   sticky topbar. */
+.app[data-route="settings"] .settings-room {
+  display: grid;
+  gap: 22px;
+}
+
+/* ---- Panels ----------------------------------------------- */
+
+.app[data-route="settings"] .settings-panel {
+  padding: 26px 28px 28px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-md);
+  background: var(--route-panel);
+  scroll-margin-top: calc(var(--topbar-height) + 20px);
+}
+
+.app[data-route="settings"] .settings-panel-head { margin-bottom: 20px; }
+
+.app[data-route="settings"] .settings-panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.app[data-route="settings"] .settings-panel-head p {
+  max-width: 58ch;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.app[data-route="settings"] .settings-muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ---- Default checks --------------------------------------- */
+
+.app[data-route="settings"] .settings-checklist {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--route-line);
+}
+
+.app[data-route="settings"] .settings-check {
+  min-height: 62px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--route-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.app[data-route="settings"] .settings-check.off { opacity: .58; }
+.app[data-route="settings"] .settings-check.unavailable { opacity: .48; cursor: not-allowed; }
+
+.app[data-route="settings"] .settings-check-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.app[data-route="settings"] .settings-check-copy strong { font-size: 12.5px; font-weight: 680; }
+
+.app[data-route="settings"] .settings-check-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.app[data-route="settings"] .settings-check .analyzer-switch { flex: 0 0 auto; }
+
+.app[data-route="settings"] .settings-count {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font: 620 11px/1.5 var(--font-geist-mono), monospace;
+}
+
+.app[data-route="settings"] .settings-error {
+  align-items: center;
+  gap: 12px;
+}
+.app[data-route="settings"] .settings-error p { font-size: 11.5px; }
+.app[data-route="settings"] .settings-error strong { font-size: 12px; }
+.app[data-route="settings"] .settings-error .text-button {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Loading skeleton: same rhythm as the real rows, so nothing shifts. */
+.app[data-route="settings"] .settings-skeleton { display: grid; gap: 2px; border-top: 1px solid var(--route-line); }
+.app[data-route="settings"] .settings-skeleton > div {
+  min-height: 62px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--route-line);
+  display: grid;
+  grid-template-columns: 1fr 34px;
+  grid-template-areas: "a c" "b c";
+  align-items: center;
+  gap: 7px 20px;
+}
+.app[data-route="settings"] .settings-skeleton b,
+.app[data-route="settings"] .settings-skeleton span,
+.app[data-route="settings"] .settings-skeleton i {
+  border-radius: 3px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--route-line) 70%, transparent) 0%,
+    color-mix(in srgb, var(--route-line) 130%, transparent) 50%,
+    color-mix(in srgb, var(--route-line) 70%, transparent) 100%);
+  background-size: 300% 100%;
+  animation: settings-shimmer 1.5s linear infinite;
+}
+.app[data-route="settings"] .settings-skeleton b { grid-area: a; width: 38%; height: 11px; }
+.app[data-route="settings"] .settings-skeleton span { grid-area: b; width: 66%; height: 9px; }
+.app[data-route="settings"] .settings-skeleton i { grid-area: c; width: 34px; height: 20px; border-radius: 10px; }
+
+@keyframes settings-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* ---- Detection thresholds ---------------------------------
+   AdvancedSettings is reused unchanged. Its own CSS assumes a
+   fixed-height scrolling sidebar and ~9px type; in this column
+   it needs to be a plain flowing block at a readable size.
+   --------------------------------------------------------- */
+
+.app[data-route="settings"] .advanced-settings {
+  height: auto;
+  min-height: 0;
+  display: block;
+}
+
+.app[data-route="settings"] .settings-list {
+  flex: none;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.app[data-route="settings"] .settings-intro {
+  padding-bottom: 18px;
+  border-color: var(--route-line);
+  align-items: center;
+}
+/* The panel header above already says what this is and what it does;
+   the component's own heading and blurb would only repeat it. The
+   profile chip and the reset control still earn their place. */
+.app[data-route="settings"] .settings-intro h2,
+.app[data-route="settings"] .settings-intro p { display: none; }
+.app[data-route="settings"] .settings-profile { font-size: 10px; padding: 4px 9px; }
+.app[data-route="settings"] .settings-intro .text-button { margin-top: 0; font-size: 12px; }
+
+.app[data-route="settings"] .settings-notice { margin: 18px 0; padding: 12px 14px; }
+.app[data-route="settings"] .settings-notice strong { font-size: 11.5px; }
+.app[data-route="settings"] .settings-notice span { font-size: 11px; line-height: 1.55; }
+
+.app[data-route="settings"] .setting-group { border-color: var(--route-line); }
+.app[data-route="settings"] .setting-group:first-child { border-top-color: var(--route-line); }
+.app[data-route="settings"] .setting-group > header { min-height: 62px; padding: 13px 2px; gap: 20px; }
+.app[data-route="settings"] .setting-group > header strong { font-size: 12.5px; }
+.app[data-route="settings"] .setting-group > header small { font-size: 11px; line-height: 1.5; }
+.app[data-route="settings"] .setting-group.unavailable { opacity: .58; }
+
+.app[data-route="settings"] .setting-fields { padding: 2px 0 16px; gap: 7px; }
+.app[data-route="settings"] .setting-field,
+.app[data-route="settings"] .setting-switch-row {
+  min-height: 54px;
+  padding: 10px 14px;
+  border-color: var(--route-line);
+  background: var(--route-surface);
+}
+.app[data-route="settings"] .setting-field strong,
+.app[data-route="settings"] .setting-switch-row strong { font-size: 12px; }
+.app[data-route="settings"] .setting-field small,
+.app[data-route="settings"] .setting-switch-row small { font-size: 10.5px; line-height: 1.5; }
+.app[data-route="settings"] .setting-input-wrap { height: 34px; }
+.app[data-route="settings"] .setting-input-wrap input { width: 66px; font-size: 12px; }
+.app[data-route="settings"] .setting-input-wrap i { font-size: 10px; }
+.app[data-route="settings"] .setting-field select { max-width: 160px; height: 34px; font-size: 11.5px; }
+.app[data-route="settings"] .managed-setting {
+  margin: 0 0 16px;
+  padding: 13px 14px;
+  border-color: var(--route-line);
+  background: var(--route-surface);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.app[data-route="settings"] .settings-footer {
+  padding-top: 16px;
+  border-top-color: var(--route-line);
+}
+.app[data-route="settings"] .settings-footer > span { font-size: 11px; }
+/* "Back to review setup" is meaningless here — there is no tab to go back
+   to. The count line above it is the part worth keeping. */
+.app[data-route="settings"] .settings-footer .primary-button { display: none; }
+
+/* ---- Session ----------------------------------------------- */
+
+.app[data-route="settings"] .settings-facts { margin: 0; display: grid; gap: 2px; border-top: 1px solid var(--route-line); }
+.app[data-route="settings"] .settings-facts > div {
+  padding: 14px 2px;
+  border-bottom: 1px solid var(--route-line);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.app[data-route="settings"] .settings-facts dt { flex: none; font-size: 12px; font-weight: 680; }
+.app[data-route="settings"] .settings-facts dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+  text-align: right;
+}
+.app[data-route="settings"] .settings-facts dd.is-offline { color: var(--danger); }
+
+.app[data-route="settings"] .settings-signout {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.app[data-route="settings"] .settings-signout > div { min-width: 0; display: grid; gap: 4px; }
+.app[data-route="settings"] .settings-signout strong { font-size: 12px; font-weight: 680; }
+.app[data-route="settings"] .settings-signout small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+.app[data-route="settings"] .settings-danger-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 15px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  font-size: 11.5px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 140ms var(--ease-out);
+}
+.app[data-route="settings"] .settings-danger-button:active { transform: scale(.97); }
+.app[data-route="settings"] .settings-danger-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---- About -------------------------------------------------- */
+
+.app[data-route="settings"] .settings-statement {
+  max-width: 62ch;
+  margin: 0;
+  padding-left: 16px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+/* ---- Save bar -----------------------------------------------
+   Sticks to the bottom of the column because the decision it
+   carries ("is what I am looking at actually saved?") has to be
+   answerable from any scroll position.
+   --------------------------------------------------------- */
+
+.app[data-route="settings"] .settings-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  margin: 0 calc(var(--route-pad) * -1) calc(var(--route-pad) * -1);
+  padding: 16px var(--route-pad) 18px;
+  border-top: 1px solid var(--route-line);
+  background: color-mix(in srgb, var(--route-canvas) 92%, transparent);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: 12px;
+}
+
+.app[data-route="settings"] .settings-savebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.app[data-route="settings"] .settings-savebar-state {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.app[data-route="settings"] .settings-savebar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.app[data-route="settings"] .settings-savebar-actions .primary-button { margin: 0; width: auto; }
+.app[data-route="settings"] .settings-savebar .feedback-toast { margin: 0; }
+.app[data-route="settings"] .settings-savebar .feedback-toast p { font-size: 11px; }
+.app[data-route="settings"] .settings-savebar .feedback-toast strong { font-size: 12px; }
+
+.app[data-route="settings"] .settings-confirm {
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  display: grid;
+  gap: 12px;
+}
+.app[data-route="settings"] .settings-confirm p {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.app[data-route="settings"] .settings-confirm strong { color: var(--ink); font-size: 12.5px; }
+.app[data-route="settings"] .settings-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+/* ---- Narrow ------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .app[data-route="settings"] .settings-panel { padding: 22px 20px 24px; }
+}
+
+@media (max-width: 560px) {
+  .app[data-route="settings"] { --route-pad: 16px; }
+  .app[data-route="settings"] .settings-sectionnav { margin: 0 -10px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 0 10px; }
+  .app[data-route="settings"] .settings-sectionnav a { white-space: nowrap; }
+  .app[data-route="settings"] .settings-panel { padding: 20px 16px 22px; }
+  .app[data-route="settings"] .settings-check { gap: 14px; }
+  .app[data-route="settings"] .setting-field,
+  .app[data-route="settings"] .setting-switch-row { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .app[data-route="settings"] .setting-field select,
+  .app[data-route="settings"] .setting-input-wrap { align-self: stretch; max-width: none; }
+  .app[data-route="settings"] .setting-input-wrap input { width: 100%; text-align: left; padding-left: 10px; }
+  .app[data-route="settings"] .setting-switch-row { flex-direction: row; align-items: center; }
+  .app[data-route="settings"] .settings-facts > div,
+  .app[data-route="settings"] .settings-signout { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .app[data-route="settings"] .settings-facts dd { text-align: left; }
+  .app[data-route="settings"] .settings-savebar-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .app[data-route="settings"] .settings-savebar-actions { justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-route="settings"] .settings-skeleton b,
+  .app[data-route="settings"] .settings-skeleton span,
+  .app[data-route="settings"] .settings-skeleton i { animation: none; }
+  .app[data-route="settings"] .settings-sectionnav a,
+  .app[data-route="settings"] .settings-check,
+  .app[data-route="settings"] .settings-danger-button { transition-duration: 1ms; }
+}

@@ -1,0 +1,284 @@
+/* ============================================================
+   Route styles for home. Every selector is scoped under
+   .app[data-route="home"] so this file can never collide with
+   another route's stylesheet.
+
+   Home is the airiest room in the product: full-bleed, vertically
+   centred, no panels and no cards. Differentiation here comes from
+   space, scale and darkness — never from a new hue. The semantic
+   palette is untouched: violet = action/attention (the CTA and the
+   scanner beam), teal = clear, rose = critical.
+   ============================================================ */
+
+/* ---- Full-bleed stage ------------------------------------
+   The shell gives this route a 1180px well with zero padding.
+   Home opts out of the well entirely: the content box becomes a
+   full-height flex container and the poster centres inside it, so
+   the page reads as one composed frame rather than a column.
+   --------------------------------------------------------- */
+
+.app[data-route="home"] .route-content {
+  max-width: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app[data-route="home"] .poster {
+  position: relative;
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  padding: clamp(24px, 4vh, 44px) clamp(20px, 5vw, 56px) clamp(28px, 5vh, 52px);
+  min-height: calc(100dvh - var(--topbar-height));
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr);
+  gap: clamp(36px, 6vw, 84px);
+  align-items: center;
+}
+
+/* A single soft violet bloom behind the specimen: this is the scanner's
+   own light, not decoration, and it is the only lit thing on the page. */
+.app[data-route="home"] .poster::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  top: 50%;
+  width: min(720px, 58vw);
+  aspect-ratio: 1;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 13%, transparent), transparent 72%);
+}
+
+.app[data-route="home"] .poster-copy,
+.app[data-route="home"] .poster-stage {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- Copy ------------------------------------------------- */
+
+.app[data-route="home"] .poster-copy { max-width: none; }
+
+.app[data-route="home"] .poster-eyebrow {
+  margin: 0 0 clamp(14px, 2.4vh, 22px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10.5px;
+  letter-spacing: .26em;
+}
+.app[data-route="home"] .poster-eyebrow::before {
+  content: "";
+  width: 26px;
+  height: 1px;
+  flex: none;
+  background: var(--accent);
+}
+
+/* A dedicated poster route can carry far more type than a sidebar could. */
+.app[data-route="home"] .poster-title {
+  margin: 0 0 clamp(14px, 2.2vh, 22px);
+  max-width: 15ch;
+  font-size: clamp(40px, 5.2vw, 66px);
+  line-height: .98;
+  letter-spacing: -.045em;
+  font-weight: 640;
+  text-wrap: balance;
+}
+
+.app[data-route="home"] .poster-lede {
+  margin: 0 0 clamp(20px, 3.2vh, 32px);
+  max-width: 44ch;
+  font-size: clamp(14.5px, 1.15vw, 16.5px);
+  line-height: 1.66;
+  color: var(--ink-soft);
+}
+
+/* ---- The only way in -------------------------------------
+   Home has no upload form any more, so this pair is the entire
+   entrance to the product. The primary must be unmissable.
+   --------------------------------------------------------- */
+
+.app[data-route="home"] .poster-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 26px;
+  margin-bottom: clamp(26px, 4.4vh, 44px);
+}
+
+.app[data-route="home"] .poster-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 26px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #160f22;
+  font-size: 14.5px;
+  font-weight: 720;
+  letter-spacing: -.005em;
+  text-decoration: none;
+  box-shadow: 0 14px 40px -14px color-mix(in srgb, var(--accent) 75%, transparent);
+  transition: background-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.app[data-route="home"] .poster-cta-primary i {
+  font-style: normal;
+  font-size: 15px;
+  transition: transform 180ms var(--ease-out);
+}
+.app[data-route="home"] .poster-cta-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  box-shadow: 0 18px 52px -12px color-mix(in srgb, var(--accent) 85%, transparent);
+}
+.app[data-route="home"] .poster-cta-primary:hover i { transform: translateX(4px); }
+.app[data-route="home"] .poster-cta-primary:active { transform: translateY(1px); }
+.app[data-route="home"] .poster-cta-primary:focus-visible,
+.app[data-route="home"] .poster-cta-secondary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 45%, transparent);
+  outline-offset: 3px;
+}
+
+.app[data-route="home"] .poster-cta-secondary {
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 620;
+  text-decoration: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.app[data-route="home"] .poster-cta-secondary:hover {
+  color: var(--ink);
+  border-bottom-color: var(--line-strong);
+}
+
+/* ---- The eight checks, as an index -------------------------
+   Eight identical pills read as a tag cloud. Numbered and ruled,
+   the same eight words read as a manifest of what the instrument
+   does — an index page, which is the right metaphor here.
+   --------------------------------------------------------- */
+
+.app[data-route="home"] .poster-checks-block { margin-bottom: clamp(24px, 4vh, 40px); }
+
+.app[data-route="home"] .poster-checks-cap {
+  margin: 0 0 6px;
+  color: var(--subtle);
+  font: 620 9.5px/1 var(--font-geist-mono), monospace;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+}
+
+.app[data-route="home"] .poster-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 clamp(18px, 3vw, 40px);
+  margin: 0;
+  max-width: 460px;
+  counter-reset: parakh-check;
+}
+
+.app[data-route="home"] .poster-checks span {
+  counter-increment: parakh-check;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: 600 12.5px/1.2 var(--font-geist-sans), system-ui, sans-serif;
+  letter-spacing: -.005em;
+}
+.app[data-route="home"] .poster-checks span::before {
+  content: counter(parakh-check, decimal-leading-zero);
+  flex: none;
+  color: var(--subtle);
+  font: 650 10px/1 var(--font-geist-mono), monospace;
+  letter-spacing: .06em;
+  transition: color 160ms ease;
+}
+.app[data-route="home"] .poster-checks span:hover::before { color: var(--accent); }
+
+/* ---- Workflow rail ---------------------------------------- */
+
+.app[data-route="home"] .poster-steps {
+  gap: clamp(16px, 2.4vw, 30px);
+  padding-top: clamp(16px, 2.6vh, 24px);
+  border-top-color: var(--line);
+}
+.app[data-route="home"] .poster-steps span { color: var(--muted); font-size: 11.5px; }
+.app[data-route="home"] .poster-steps b { border-color: var(--line-strong); }
+
+/* ---- Specimen ---------------------------------------------
+   The scan animation is the best asset in the app; it only gets
+   bigger and a deeper shadow here, nothing is redesigned.
+   --------------------------------------------------------- */
+
+.app[data-route="home"] .poster-stage { gap: 20px; }
+.app[data-route="home"] .specimen-scan {
+  width: clamp(240px, 24vw, 300px);
+  height: clamp(316px, 31.6vw, 395px);
+}
+.app[data-route="home"] .specimen {
+  box-shadow: 0 44px 90px -26px rgba(0, 0, 0, .85), 0 0 0 1px rgba(0, 0, 0, .5);
+}
+.app[data-route="home"] .specimen-caption { letter-spacing: .16em; }
+
+/* ---- Entrance --------------------------------------------- */
+
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.app[data-route="home"] .poster-copy > * {
+  animation: home-rise 620ms var(--ease-out) both;
+}
+.app[data-route="home"] .poster-copy > *:nth-child(1) { animation-delay: 40ms; }
+.app[data-route="home"] .poster-copy > *:nth-child(2) { animation-delay: 110ms; }
+.app[data-route="home"] .poster-copy > *:nth-child(3) { animation-delay: 180ms; }
+.app[data-route="home"] .poster-copy > *:nth-child(4) { animation-delay: 250ms; }
+.app[data-route="home"] .poster-copy > *:nth-child(5) { animation-delay: 320ms; }
+.app[data-route="home"] .poster-copy > *:nth-child(6) { animation-delay: 390ms; }
+
+/* ---- Responsive ------------------------------------------- */
+
+@media (max-width: 1120px) {
+  .app[data-route="home"] .route-content { align-items: flex-start; }
+  .app[data-route="home"] .poster {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    padding: 32px clamp(18px, 5vw, 40px) 44px;
+    justify-items: start;
+  }
+  .app[data-route="home"] .poster::after { right: auto; left: 50%; top: 74%; transform: translate(-50%, -50%); }
+  .app[data-route="home"] .poster-title { font-size: clamp(38px, 6.6vw, 60px); }
+  .app[data-route="home"] .poster-stage { align-self: center; justify-self: center; }
+}
+
+@media (max-width: 560px) {
+  .app[data-route="home"] .poster { padding: 24px 18px 40px; }
+  .app[data-route="home"] .poster-title { font-size: clamp(32px, 10vw, 44px); }
+  .app[data-route="home"] .poster-checks { grid-template-columns: minmax(0, 1fr); max-width: none; }
+  .app[data-route="home"] .poster-cta { gap: 14px 20px; margin-bottom: 36px; }
+  .app[data-route="home"] .poster-cta-primary { width: 100%; justify-content: center; }
+  .app[data-route="home"] .poster-steps { gap: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-route="home"] .poster-copy > * { animation: none; }
+  .app[data-route="home"] .poster-cta-primary,
+  .app[data-route="home"] .poster-cta-primary i,
+  .app[data-route="home"] .poster-cta-secondary,
+  .app[data-route="home"] .poster-checks span::before { transition-duration: 1ms; }
+  .app[data-route="home"] .poster-cta-primary:hover i { transform: none; }
+}

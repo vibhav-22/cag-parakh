@@ -1,0 +1,282 @@
+/* ============================================================
+   Parakh shell: the per-route sense of place.
+
+   One instrument, six rooms. What stays constant: type scale, the
+   brand mark, radii, motion, and the semantic palette (violet =
+   action/attention, teal = clear, rose = critical). Those colors
+   carry meaning and are NEVER used to identify a route.
+
+   What varies per route, and is the whole point of this file:
+     1. chrome     - no rail / labelled rail / icon rail
+     2. surface    - background depth, from airiest to darkest
+     3. density    - content max-width and padding
+     4. header     - a distinct band under the topbar
+
+   Route styling hangs off [data-route] on .app, so a route file
+   only ever writes `.app[data-route="history"] .thing { }` and can
+   never collide with another route's file.
+   ============================================================ */
+
+.app {
+  --route-canvas: var(--canvas);
+  --route-surface: var(--surface);
+  --route-panel: var(--surface-muted);
+  --route-line: var(--line);
+  --route-max: 1380px;
+  --route-pad: 32px;
+  --route-gap: 24px;
+  --rail-width: 216px;
+
+  min-height: 100dvh;
+  background: var(--route-canvas);
+  transition: background-color 260ms var(--ease-out);
+}
+
+/* ---- The surface ladder ----------------------------------
+   Read top to bottom as airiest to densest. The document
+   workspace is deliberately the darkest room in the app so the
+   scanned page is the brightest thing on screen, the way a
+   lightbox works.
+   --------------------------------------------------------- */
+
+.app[data-route="home"] {
+  --route-canvas: #08080c;
+  --route-surface: transparent;
+  --route-max: 1180px;
+  --route-pad: 0px;
+}
+
+.app[data-route="new"] {
+  --route-canvas: #101019;
+  --route-surface: #171722;
+  --route-panel: #1c1c29;
+  --route-line: #262636;
+  --route-max: 760px;
+  --route-pad: 40px;
+}
+
+.app[data-route="ask"] {
+  --route-canvas: #0b0b12;
+  --route-surface: #12121c;
+  --route-panel: #171722;
+  --route-line: #252534;
+  --route-max: 1240px;
+  --route-pad: 28px;
+}
+
+.app[data-route="history"] {
+  --route-canvas: #0d0d14;
+  --route-surface: #12121c;
+  --route-panel: #16161f;
+  --route-max: 1180px;
+  --route-pad: 28px;
+}
+
+.app[data-route="batches"] {
+  --route-canvas: #0b0b11;
+  --route-surface: #0f0f17;
+  --route-panel: #13131c;
+  --route-line: #1e1e2a;
+  --route-max: none;
+  --route-pad: 24px;
+  --route-gap: 18px;
+}
+
+.app[data-route="settings"] {
+  --route-canvas: #12121b;
+  --route-surface: #191924;
+  --route-panel: #1e1e2b;
+  --route-max: 720px;
+  --route-pad: 40px;
+}
+
+.app[data-route="document"] {
+  --route-canvas: #060609;
+  --route-surface: #0e0e16;
+  --route-panel: #12121b;
+  --route-line: #1c1c27;
+  --route-max: 1440px;
+  --route-pad: 22px;
+  --route-gap: 18px;
+}
+
+/* Home is a poster, not a screen. The vignette pulls the eye to the
+   centre and hides the fact that there is no panel structure at all. */
+.app[data-route="home"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, #14142200 40%, #000 100%);
+  z-index: 0;
+}
+
+/* ---- Topbar variants ------------------------------------- */
+
+.app[data-route="home"] .topbar {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border-color: transparent;
+}
+
+.app:not([data-route="home"]) .topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+/* The wordmark is no longer an <h1>: on a document route the filename is the
+   page's subject, so the route header owns the only <h1> and the outline is
+   finally meaningful to assistive tech. */
+.brand-name { display: block; font-size: 16px; font-weight: 700; line-height: 1.2; letter-spacing: -.015em; color: var(--ink); }
+
+/* ---- Shell layout ---------------------------------------- */
+
+.shell {
+  position: relative;
+  z-index: 1;
+  min-height: calc(100dvh - var(--topbar-height));
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  transition: grid-template-columns 240ms var(--ease-drawer);
+}
+.shell[data-chrome="bare"] { grid-template-columns: minmax(0, 1fr); }
+.shell[data-chrome="icons"] { --rail-width: 64px; }
+
+.route-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.route-content {
+  width: 100%;
+  max-width: var(--route-max);
+  margin-inline: auto;
+  padding: var(--route-pad);
+  flex: 1;
+}
+.app[data-route="batches"] .route-content,
+.app[data-route="document"] .route-content { max-width: none; }
+
+/* ---- Navigation rail ------------------------------------- */
+
+.nav-rail {
+  min-width: 0;
+  padding: 18px 12px;
+  background: color-mix(in srgb, var(--route-surface) 70%, #000);
+  border-right: 1px solid var(--route-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+.nav-rail nav { display: grid; gap: 3px; }
+.nav-rail a {
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  white-space: nowrap;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+.nav-rail a svg { flex: none; width: 17px; height: 17px; }
+.nav-rail a:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.nav-rail a[aria-current="page"] {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: var(--accent-soft);
+}
+.nav-rail a[aria-current="page"] svg { color: var(--accent); }
+
+.shell[data-chrome="icons"] .nav-rail { padding-inline: 10px; align-items: center; }
+.shell[data-chrome="icons"] .nav-rail a { padding: 10px; justify-content: center; }
+.shell[data-chrome="icons"] .rail-label { display: none; }
+
+.rail-foot { margin-top: auto; display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--route-line); }
+.rail-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10.5px; font-weight: 620; }
+.rail-status i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--good); font-style: normal; }
+.rail-status.checking i { background: var(--accent); }
+.rail-status.offline { color: var(--danger); }
+.rail-status.offline i { background: var(--danger); }
+.shell[data-chrome="icons"] .rail-status span { display: none; }
+.rail-signout {
+  padding: 7px 9px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.rail-signout:hover { color: var(--ink); border-color: var(--line-strong); }
+.shell[data-chrome="icons"] .rail-signout { padding: 7px 4px; font-size: 9px; }
+
+/* ---- Route header band -----------------------------------
+   The single strongest "where am I" signal short of recolouring.
+   Every route fills this differently: home skips it entirely, /new
+   shows steps, batches shows live progress, document shows the
+   verdict, history shows search, settings shows section tabs.
+   --------------------------------------------------------- */
+
+.route-header {
+  padding: 20px var(--route-pad) 0;
+  width: 100%;
+  max-width: var(--route-max);
+  margin-inline: auto;
+}
+.app[data-route="batches"] .route-header,
+.app[data-route="document"] .route-header { max-width: none; }
+
+.route-header-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.route-header-eyebrow {
+  margin: 0 0 7px;
+  min-height: 14px;
+  color: var(--accent);
+  font: 650 10px/1 var(--font-geist-mono), monospace;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+.route-header h1 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.15;
+  letter-spacing: -.032em;
+  overflow-wrap: anywhere;
+}
+.route-header-sub { margin: 7px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.route-header-aside { flex: none; display: flex; align-items: center; gap: 10px; }
+.route-header-below { margin-top: 18px; }
+.route-header-rule { margin-top: 20px; border-bottom: 1px solid var(--route-line); }
+
+/* Denser rooms get a tighter header so the data starts higher. */
+.app[data-route="batches"] .route-header h1,
+.app[data-route="document"] .route-header h1 { font-size: 21px; }
+.app[data-route="batches"] .route-header,
+.app[data-route="document"] .route-header { padding-top: 16px; }
+
+@media (max-width: 900px) {
+  .shell, .shell[data-chrome="icons"] { grid-template-columns: minmax(0, 1fr); }
+  .nav-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--route-line);
+    overflow-x: auto;
+  }
+  .nav-rail nav { grid-auto-flow: column; gap: 6px; }
+  .rail-foot { margin: 0 0 0 auto; grid-auto-flow: column; align-items: center; padding: 0 0 0 12px; border-top: 0; border-left: 1px solid var(--route-line); }
+  .rail-label { display: inline; }
+  .app { --route-pad: 18px; }
+}

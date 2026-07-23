@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { SessionProvider } from "./lib/session";
 import "./globals.css";
+// Shell first (it defines the per-route surface tokens), then one stylesheet
+// per route. Each route file owns its own selectors so they never collide.
+import "./styles/shell.css";
+import "./styles/home.css";
+import "./styles/new.css";
+import "./styles/history.css";
+import "./styles/settings.css";
+import "./styles/case.css";
+import "./styles/ask.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,8 +28,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
-  const title = "Document Suspicion System";
-  const description = "Screen PDF documents, inspect evidence, and record a review decision.";
+  const title = "Parakh | Document Integrity Workspace";
+  const description = "Run local PDF integrity checks, inspect evidence, and record review decisions.";
   return {
     metadataBase,
     title,
@@ -40,7 +50,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );

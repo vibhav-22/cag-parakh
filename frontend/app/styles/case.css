@@ -1,0 +1,336 @@
+/* ============================================================
+   Case routes: /batches/[id] and the document workspace.
+
+   These are the two dense rooms. Batches is a flat grid-lined
+   table with no card chrome. The workspace is the darkest surface
+   in the product so the scanned page reads as the lit object, the
+   way a lightbox works.
+
+   Everything here is scoped under .app[data-route="batches"] or
+   .app[data-route="document"] so it cannot leak into the airier
+   rooms (home, new, settings).
+   ============================================================ */
+
+.mono-ref { font-family: var(--font-geist-mono), monospace; letter-spacing: .04em; }
+
+/* ---- /batches: live telemetry band ------------------------
+   Replaces the four generic metric tiles that used to sit on
+   every screen. The counts ride the progress track instead, so
+   the table starts higher and the band reads as this route's own.
+   --------------------------------------------------------- */
+
+.app[data-route="batches"] .batch-telemetry {
+  display: grid;
+  gap: 12px;
+}
+.app[data-route="batches"] .bt-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--route-line);
+  overflow: hidden;
+}
+.app[data-route="batches"] .bt-track > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 500ms var(--ease-out);
+}
+.app[data-route="batches"] .bt-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+}
+.app[data-route="batches"] .bt-stats > div { display: flex; align-items: baseline; gap: 8px; }
+.app[data-route="batches"] .bt-stats dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.app[data-route="batches"] .bt-stats dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.app[data-route="batches"] .bt-stats dd small { color: var(--subtle); font-size: 11px; font-weight: 600; }
+.app[data-route="batches"] .bt-flagged dd { color: var(--accent); }
+.app[data-route="batches"] .bt-errors dd { color: var(--danger); }
+
+/* ---- /batches: the matrix as flat data, not a card -------- */
+
+.app[data-route="batches"] .batch-view { padding-top: 18px; }
+.app[data-route="batches"] .matrix-card { margin-top: 0; }
+.app[data-route="batches"] .matrix-scroll {
+  margin-top: 12px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+}
+.app[data-route="batches"] .outcome-matrix th,
+.app[data-route="batches"] .outcome-matrix td {
+  border-bottom: 1px solid var(--route-line);
+  border-right: 1px solid color-mix(in srgb, var(--route-line) 55%, transparent);
+  padding: 7px 10px;
+}
+.app[data-route="batches"] .outcome-matrix th:last-child,
+.app[data-route="batches"] .outcome-matrix td:last-child { border-right: 0; }
+.app[data-route="batches"] .outcome-matrix thead th {
+  background: color-mix(in srgb, var(--route-canvas) 80%, #000);
+  border-bottom-color: var(--line-strong);
+}
+
+/* The document name stays pinned while the reviewer scrolls across
+   20 analyzer columns. Without this you scroll right and lose track
+   of which row you are reading. */
+.app[data-route="batches"] .outcome-matrix thead th:first-child,
+.app[data-route="batches"] .outcome-matrix tbody th[scope="row"] {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--route-surface);
+  border-right: 1px solid var(--line-strong);
+}
+.app[data-route="batches"] .outcome-matrix thead th:first-child {
+  z-index: 2;
+  background: color-mix(in srgb, var(--route-canvas) 80%, #000);
+}
+.app[data-route="batches"] .outcome-matrix tbody tr:hover th[scope="row"] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--route-surface));
+}
+
+.app[data-route="batches"] .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.app[data-route="batches"] .panel-title h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+.app[data-route="batches"] .matrix-tools { display: flex; gap: 6px; }
+.app[data-route="batches"] .matrix-tools button {
+  padding: 5px 10px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+.app[data-route="batches"] .matrix-tools button b {
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--route-line);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.app[data-route="batches"] .matrix-tools button:hover { color: var(--ink); border-color: var(--line-strong); }
+.app[data-route="batches"] .matrix-tools button.active {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.app[data-route="batches"] .matrix-tools button.active b { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.app[data-route="batches"] .matrix-empty {
+  margin: 0;
+  padding: 26px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---- Document workspace: the lightbox ---------------------
+   Darkest room in the app on purpose. Panels recede, the page
+   itself is the brightest thing on screen.
+   --------------------------------------------------------- */
+
+.app[data-route="document"] .route-header { padding-bottom: 4px; }
+.app[data-route="document"] .route-header h1 { font-size: 19px; }
+.app[data-route="document"] .case-breadcrumb { margin-bottom: 0; }
+
+.app[data-route="document"] .flag-walk {
+  margin: 0;
+  padding: 4px;
+  background: var(--route-panel);
+  border-color: var(--route-line);
+  gap: 4px;
+}
+.app[data-route="document"] .flag-walk a { padding: 3px 9px; font-size: 13px; line-height: 1.3; }
+.app[data-route="document"] .flag-walk > span { padding-inline: 4px; font-size: 10.5px; white-space: nowrap; }
+
+.app[data-route="document"] .verdict-anchor { margin: 0; }
+.app[data-route="document"] .doc-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--route-line);
+  overflow: hidden;
+}
+.app[data-route="document"] .doc-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 500ms var(--ease-out);
+}
+
+.app[data-route="document"] .job-view { max-width: none; }
+.app[data-route="document"] .case-grid { gap: var(--route-gap); }
+.app[data-route="document"] .panel-title h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+
+.app[data-route="document"] .result-card,
+.app[data-route="document"] .document-viewer,
+.app[data-route="document"] .decision-card {
+  background: var(--route-surface);
+  border-color: var(--route-line);
+}
+.app[data-route="document"] .viewer-toolbar,
+.app[data-route="document"] .evidence-register { background: var(--route-panel); }
+
+.app[data-route="document"] .detected-photo {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .detected-photo img {
+  display: block;
+  width: min(100%, 220px);
+  max-height: 280px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: #050507;
+  object-fit: contain;
+}
+.app[data-route="document"] .detected-photo figcaption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.app[data-route="document"] .vlm-query-card {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+}
+.app[data-route="document"] .vlm-query-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.app[data-route="document"] .vlm-query-heading .eyebrow {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.app[data-route="document"] .vlm-query-heading h3 { margin: 5px 0 4px; font-size: 15px; }
+.app[data-route="document"] .vlm-query-heading p,
+.app[data-route="document"] .vlm-unavailable,
+.app[data-route="document"] .vlm-disclaimer {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.app[data-route="document"] .vlm-status {
+  flex: 0 0 auto;
+  max-width: 190px;
+  padding: 5px 8px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app[data-route="document"] .vlm-status.ready {
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  color: var(--good);
+}
+.app[data-route="document"] .vlm-unavailable {
+  margin-top: 14px;
+  padding: 12px;
+  border-left: 2px solid var(--route-line);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .vlm-answer-list { display: grid; gap: 10px; margin-top: 16px; }
+.app[data-route="document"] .vlm-answer {
+  padding: 12px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .vlm-answer > p { margin: 8px 0 0; font-size: 11px; line-height: 1.65; }
+.app[data-route="document"] .vlm-answer .vlm-question { margin-top: 0; color: var(--muted); }
+.app[data-route="document"] .vlm-question span { display: block; margin-bottom: 3px; color: var(--subtle); font-size: 8.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.app[data-route="document"] .vlm-answer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.app[data-route="document"] .vlm-answer-meta > span,
+.app[data-route="document"] .vlm-answer-meta button {
+  padding: 3px 7px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+.app[data-route="document"] .vlm-answer-meta button { color: var(--accent); cursor: pointer; }
+.app[data-route="document"] .vlm-answer > small { display: block; margin-top: 8px; color: var(--subtle); font-size: 9px; line-height: 1.5; }
+.app[data-route="document"] .vlm-question-form { margin-top: 16px; }
+.app[data-route="document"] .vlm-question-form label { display: block; margin-bottom: 6px; font-size: 10px; font-weight: 700; }
+.app[data-route="document"] .vlm-question-form > div { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.app[data-route="document"] .vlm-question-form input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+.app[data-route="document"] .vlm-question-form input:focus { border-color: var(--accent); outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); }
+.app[data-route="document"] .vlm-question-form button {
+  min-width: 74px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #160f22;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.app[data-route="document"] .vlm-question-form button:disabled { opacity: .45; cursor: not-allowed; }
+.app[data-route="document"] .vlm-query-card .feedback-toast { margin-top: 10px; }
+.app[data-route="document"] .vlm-disclaimer { margin-top: 12px; font-size: 9px; }
+
+/* The scanned page gets a lift so it reads as the lit object under
+   examination rather than one more panel on a dark screen. */
+.app[data-route="document"] .document-stage { background: #030305; }
+.app[data-route="document"] .document-page {
+  box-shadow: 0 0 0 1px #ffffff14, 0 26px 60px -18px #000, 0 0 90px -30px #9d7bff40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-route="batches"] .bt-track > span,
+  .app[data-route="document"] .doc-progress > span { transition-duration: 1ms; }
+}
+
+@media (max-width: 780px) {
+  .app[data-route="batches"] .bt-stats { gap: 16px; }
+  .app[data-route="batches"] .bt-stats dd { font-size: 15px; }
+  .app[data-route="batches"] .panel-title { flex-wrap: wrap; }
+  .app[data-route="document"] .route-header-main { flex-wrap: wrap; }
+  .app[data-route="document"] .vlm-query-heading { flex-direction: column; }
+  .app[data-route="document"] .vlm-question-form > div { grid-template-columns: 1fr; }
+}

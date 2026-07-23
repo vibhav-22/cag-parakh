@@ -1,0 +1,177 @@
+.app[data-route="ask"] .ask-model-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.app[data-route="ask"] .ask-model-state.ready {
+  border-color: color-mix(in srgb, var(--good) 42%, var(--route-line));
+  color: var(--good);
+}
+
+.app[data-route="ask"] .ask-start {
+  max-width: 760px;
+  margin-inline: auto;
+  padding-top: 36px;
+}
+
+.app[data-route="ask"] .ask-start-copy { max-width: 620px; }
+.app[data-route="ask"] .ask-start-copy h2 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+.app[data-route="ask"] .ask-start-copy p { margin: 8px 0 0; max-width: 68ch; color: var(--muted); font-size: 12px; line-height: 1.65; }
+
+.app[data-route="ask"] .ask-dropzone {
+  min-height: 220px;
+  margin-top: 24px;
+  padding: 28px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 42%, var(--route-line));
+  border-radius: var(--radius-md);
+  background: var(--route-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: border-color 180ms var(--ease-out), background-color 180ms var(--ease-out);
+}
+
+.app[data-route="ask"] .ask-dropzone:hover { border-color: var(--accent); background: var(--route-panel); }
+.app[data-route="ask"] .ask-dropzone:focus-within { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); }
+.app[data-route="ask"] .ask-dropzone.busy { cursor: progress; }
+.app[data-route="ask"] .ask-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.app[data-route="ask"] .ask-dropzone strong { font-size: 14px; }
+.app[data-route="ask"] .ask-dropzone small { color: var(--muted); font-size: 10.5px; }
+.app[data-route="ask"] .ask-upload-mark {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.app[data-route="ask"] .ask-service-note,
+.app[data-route="ask"] .ask-error {
+  margin: 14px 0 0;
+  padding: 11px 12px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.app[data-route="ask"] .ask-error { border-color: color-mix(in srgb, var(--danger) 45%, var(--route-line)); color: var(--danger); }
+
+.app[data-route="ask"] .ask-workspace {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.15fr) minmax(340px, .85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.app[data-route="ask"] .ask-document,
+.app[data-route="ask"] .ask-conversation {
+  min-width: 0;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-md);
+  background: var(--route-surface);
+  overflow: hidden;
+}
+
+.app[data-route="ask"] .ask-document-bar,
+.app[data-route="ask"] .ask-page-controls {
+  min-height: 52px;
+  padding: 10px 14px;
+  background: var(--route-panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.app[data-route="ask"] .ask-document-bar { border-bottom: 1px solid var(--route-line); }
+.app[data-route="ask"] .ask-page-controls { border-top: 1px solid var(--route-line); }
+.app[data-route="ask"] .ask-document-bar > div { min-width: 0; display: grid; gap: 2px; }
+.app[data-route="ask"] .ask-document-bar strong { overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.app[data-route="ask"] .ask-document-bar span,
+.app[data-route="ask"] .ask-page-controls span { color: var(--muted); font-size: 9.5px; }
+.app[data-route="ask"] .ask-document-bar button,
+.app[data-route="ask"] .ask-page-controls button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 9.5px;
+  cursor: pointer;
+}
+.app[data-route="ask"] .ask-page-controls button:disabled { opacity: .4; cursor: not-allowed; }
+
+.app[data-route="ask"] .ask-page-stage {
+  height: min(68vh, 760px);
+  min-height: 480px;
+  padding: 22px;
+  background: #07070b;
+  overflow: auto;
+  display: grid;
+  place-items: start center;
+}
+.app[data-route="ask"] .ask-page-stage img { display: block; max-width: 100%; height: auto; background: white; box-shadow: 0 4px 8px #0008; }
+.app[data-route="ask"] .ask-page-stage > span { align-self: center; color: var(--muted); font-size: 11px; }
+
+.app[data-route="ask"] .ask-conversation { min-height: min(68vh, 760px); display: flex; flex-direction: column; }
+.app[data-route="ask"] .ask-conversation-head { padding: 17px 18px 14px; border-bottom: 1px solid var(--route-line); }
+.app[data-route="ask"] .ask-conversation-head h2 { margin: 0; font-size: 15px; }
+.app[data-route="ask"] .ask-conversation-head p { margin: 5px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.app[data-route="ask"] .ask-answer-list { flex: 1; min-height: 260px; max-height: 480px; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.app[data-route="ask"] .ask-empty { margin: auto; max-width: 280px; text-align: center; display: grid; gap: 5px; }
+.app[data-route="ask"] .ask-empty strong { font-size: 12px; }
+.app[data-route="ask"] .ask-empty span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.app[data-route="ask"] .ask-answer { padding: 13px; border: 1px solid var(--route-line); border-radius: var(--radius-sm); background: var(--route-panel); }
+.app[data-route="ask"] .ask-answer > p { margin: 8px 0 0; font-size: 11px; line-height: 1.65; }
+.app[data-route="ask"] .ask-answer .ask-question { margin-top: 0; color: var(--muted); font-weight: 650; }
+.app[data-route="ask"] .ask-answer-meta { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.app[data-route="ask"] .ask-answer-meta span,
+.app[data-route="ask"] .ask-answer-meta button { padding: 3px 7px; border: 1px solid var(--route-line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 9px; }
+.app[data-route="ask"] .ask-answer-meta button { color: var(--accent); cursor: pointer; }
+.app[data-route="ask"] .ask-answer > small { display: block; margin-top: 8px; color: var(--subtle); font-size: 9px; line-height: 1.5; }
+
+.app[data-route="ask"] .ask-form { padding: 14px; border-top: 1px solid var(--route-line); background: var(--route-panel); }
+.app[data-route="ask"] .ask-form label { display: block; margin-bottom: 6px; font-size: 10px; font-weight: 700; }
+.app[data-route="ask"] .ask-form textarea { width: 100%; resize: vertical; min-height: 74px; padding: 10px; border: 1px solid var(--route-line); border-radius: var(--radius-sm); background: var(--route-surface); color: var(--ink); font: inherit; font-size: 11px; line-height: 1.5; }
+.app[data-route="ask"] .ask-form textarea:focus { border-color: var(--accent); outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); }
+.app[data-route="ask"] .ask-form > div { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.app[data-route="ask"] .ask-form > div span { color: var(--muted); font-size: 9px; }
+.app[data-route="ask"] .ask-form button { min-height: 34px; padding: 7px 11px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent); color: #fff; font: inherit; font-size: 10px; font-weight: 750; cursor: pointer; }
+.app[data-route="ask"] .ask-form button:disabled { opacity: .45; cursor: not-allowed; }
+.app[data-route="ask"] .ask-conversation > .ask-error { margin: 0 14px 10px; }
+.app[data-route="ask"] .ask-disclaimer { margin: 0; padding: 0 14px 14px; color: var(--subtle); font-size: 9px; line-height: 1.5; }
+
+@media (max-width: 1050px) {
+  .app[data-route="ask"] .ask-workspace { grid-template-columns: 1fr; }
+  .app[data-route="ask"] .ask-page-stage { height: 620px; }
+}
+
+@media (max-width: 620px) {
+  .app[data-route="ask"] .ask-page-stage { min-height: 400px; height: 55vh; padding: 12px; }
+  .app[data-route="ask"] .ask-document-bar { align-items: flex-start; }
+  .app[data-route="ask"] .ask-form > div { align-items: stretch; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-route="ask"] .ask-dropzone { transition: none; }
+}
