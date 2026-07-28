@@ -163,6 +163,7 @@ export default function HistoryPage() {
       if (verdict === "reviewed" && !(detail && detail.decided > 0)) return false;
       if (needle) {
         const haystack = [
+          item.name,
           item.id,
           formatWhen(item.created_at),
           ...(detail?.filenames || []),
@@ -197,6 +198,12 @@ export default function HistoryPage() {
 
   const controls = (
     <div className="hist-controls">
+      <div className="hist-summary" aria-label="Screening summary">
+        <div><span>Total records</span><strong>{cases.length.toLocaleString()}</strong></div>
+        <div><span>Documents</span><strong>{totalDocuments.toLocaleString()}</strong></div>
+        <div><span>Flagged</span><strong>{cases.reduce((sum, item) => sum + item.flagged_documents, 0).toLocaleString()}</strong></div>
+        <div><span>Manual review</span><strong>{Object.values(details).reduce((sum, detail) => sum + detail.decided, 0).toLocaleString()}</strong></div>
+      </div>
       <div className="hist-search">
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -205,7 +212,7 @@ export default function HistoryPage() {
         <input
           type="search"
           value={query}
-          placeholder="Search by document name, batch reference, or date"
+          placeholder="Search by batch name, document name, or date"
           aria-label="Search past cases"
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -258,7 +265,7 @@ export default function HistoryPage() {
       header={
         <RouteHeader
           eyebrow="Case library"
-          title="Case history"
+          title="Screening history"
           sub={subline}
           below={controls}
         />
@@ -321,6 +328,7 @@ export default function HistoryPage() {
                 return (
                   <li key={item.id}>
                     <NavLink className="case-row" href={`/batches/${item.id}`}>
+                      <span className="case-name" title={item.name}>{item.name}</span>
                       <span className="case-when">
                         <strong>{relativeDay(item.created_at, now)}</strong>
                         <small>{formatWhen(item.created_at)}</small>

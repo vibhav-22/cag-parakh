@@ -5,7 +5,7 @@ import NavLink from "./nav-link";
 import NavRail from "./nav-rail";
 import { useSession } from "../lib/session";
 
-export type RouteName = "home" | "new" | "ask" | "batches" | "document" | "history" | "settings";
+export type RouteName = "home" | "new" | "ask" | "batches" | "document" | "history" | "reports" | "settings";
 export type Chrome = "bare" | "rail" | "icons";
 
 /**
@@ -32,18 +32,20 @@ export default function AppShell({
 
   return (
     <main className="app" data-route={route}>
-      <header className="topbar">
-        <NavLink className="brand-link" href="/">
-          <div className="brand-mark" aria-hidden="true">P</div>
-          <div className="brand-copy">
-            <span className="brand-name">Parakh</span>
-            <p>Document integrity workspace</p>
-          </div>
-        </NavLink>
-        {chrome === "bare" && session.required && (
-          <button type="button" className="text-button signout-button" onClick={signOut}>Sign out</button>
-        )}
-      </header>
+      {chrome === "bare" && (
+        <header className="topbar">
+          <NavLink className="brand-link" href="/">
+            <div className="brand-mark" aria-hidden="true">P</div>
+            <div className="brand-copy">
+              <span className="brand-name">CAG Parakh</span>
+              <p>Document forensics</p>
+            </div>
+          </NavLink>
+          {session.required && (
+            <button type="button" className="text-button signout-button" onClick={signOut}>Sign out</button>
+          )}
+        </header>
+      )}
 
       <div className="shell" data-chrome={chrome}>
         {chrome !== "bare" && <NavRail collapsed={chrome === "icons"} />}

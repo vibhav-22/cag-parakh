@@ -1,0 +1,9 @@
+# The signature locator reuses these packages from backend/requirements.txt:
+# numpy, Pillow, pypdf, pdfplumber, pytesseract, PyMuPDF, and opencv-python.
+#
+# OpenCV is used for connected-component labelling: the detector isolates a
+# signature by removing everything the page can account for and measuring the
+# ink left over, which needs component labelling rather than row profiling.
+#
+# Poppler is preferred when available. PyMuPDF is the automatic renderer
+# fallback, so no separate model runtime or weight download is required.

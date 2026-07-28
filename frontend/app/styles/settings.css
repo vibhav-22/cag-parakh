@@ -432,3 +432,55 @@
   .app[data-route="settings"] .settings-check,
   .app[data-route="settings"] .settings-danger-button { transition-duration: 1ms; }
 }
+
+/* ── Screening tests management ─────────────────────────────────────────── */
+.app[data-route="settings"] .profile-manage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.app[data-route="settings"] .profile-manage-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+.app[data-route="settings"] .profile-manage-copy { flex: 1 1 320px; min-width: 0; }
+.app[data-route="settings"] .profile-manage-copy strong { font-size: 13px; }
+.app[data-route="settings"] .profile-manage-goal { margin: 5px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
+.app[data-route="settings"] .profile-manage-rule { margin: 8px 0 0; color: var(--ink); font-size: 12px; line-height: 1.6; }
+.app[data-route="settings"] .profile-manage-rule span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.app[data-route="settings"] .profile-manage-checks { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.app[data-route="settings"] .profile-manage-buttons { display: flex; align-items: center; gap: 12px; }
+.app[data-route="settings"] .profile-manage-edit { flex: 1 1 100%; display: grid; gap: 12px; }
+.app[data-route="settings"] .profile-manage-edit label { display: grid; gap: 5px; font-size: 11px; font-weight: 700; }
+.app[data-route="settings"] .profile-manage-edit input,
+.app[data-route="settings"] .profile-manage-edit textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.app[data-route="settings"] .profile-manage-edit textarea { resize: vertical; }
+.app[data-route="settings"] .profile-manage-edit input:focus,
+.app[data-route="settings"] .profile-manage-edit textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+.app[data-route="settings"] .profile-manage-error { margin: 0; color: var(--danger); font-size: 11px; }
+.app[data-route="settings"] .profile-manage-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }

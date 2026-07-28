@@ -1,53 +1,57 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import {
+  ChartLineUp,
+  ChatCenteredText,
+  GearSix,
+  Scan,
+  SquaresFour,
+  Stack,
+} from "@phosphor-icons/react";
 import NavLink from "./nav-link";
 import { useSession } from "../lib/session";
 
 const ITEMS = [
   {
-    href: "/new",
-    label: "New review",
-    match: (path: string) => path === "/new",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-    ),
+    href: "/",
+    label: "Dashboard",
+    match: (path: string) => path === "/",
+    icon: <SquaresFour aria-hidden="true" weight="regular" />,
   },
   {
+    href: "/new",
+    label: "New Screening",
+    match: (path: string) => path === "/new",
+    icon: <Scan aria-hidden="true" weight="regular" />,
+  },
+  // The case library and the batch matrix are one concept, not two. /history
+  // is the list; /batches/[id] is a case opened from it. A second rail row
+  // pointing at the same route only made the rail look like it had somewhere
+  // else to go.
+  {
     href: "/history",
-    label: "History",
+    label: "Batches",
     match: (path: string) => path === "/history" || path.startsWith("/batches"),
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="8.5" />
-        <path d="M12 7.5V12l3 1.8" />
-      </svg>
-    ),
+    icon: <Stack aria-hidden="true" weight="regular" />,
+  },
+  {
+    href: "/reports",
+    label: "Reports",
+    match: (path: string) => path === "/reports",
+    icon: <ChartLineUp aria-hidden="true" weight="regular" />,
   },
   {
     href: "/ask",
-    label: "Ask documents",
+    label: "Ask Documents",
     match: (path: string) => path === "/ask",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M6 3.5h8l4 4V20.5H6z" />
-        <path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
-      </svg>
-    ),
+    icon: <ChatCenteredText aria-hidden="true" weight="regular" />,
   },
   {
     href: "/settings",
     label: "Settings",
     match: (path: string) => path === "/settings",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-        <circle cx="16" cy="7" r="2.1" />
-        <circle cx="10" cy="17" r="2.1" />
-      </svg>
-    ),
+    icon: <GearSix aria-hidden="true" weight="regular" />,
   },
 ];
 
@@ -66,10 +70,18 @@ export default function NavRail({ collapsed }: { collapsed: boolean }) {
 
   return (
     <aside className="nav-rail">
+      <NavLink className="rail-brand" href="/">
+        <span className="rail-brand-mark" aria-hidden="true"><Scan weight="bold" /></span>
+        <span className="rail-brand-copy">
+          <strong>CAG Parakh</strong>
+          <small>DOC FORENSICS</small>
+        </span>
+      </NavLink>
+
       <nav aria-label="Sections">
         {ITEMS.map((item) => (
           <NavLink
-            key={item.href}
+            key={item.label}
             href={item.href}
             title={collapsed ? item.label : undefined}
             aria-current={item.match(pathname) ? "page" : undefined}
@@ -81,9 +93,12 @@ export default function NavRail({ collapsed }: { collapsed: boolean }) {
       </nav>
 
       <div className="rail-foot">
-        <div className={`rail-status ${serviceStatus}`} role="status" title={statusLabel}>
-          <i aria-hidden="true" />
-          <span>{statusLabel}</span>
+        <div className="rail-account">
+          <span className="rail-avatar" aria-hidden="true">FI</span>
+          <span>
+            <strong>Field Investigator</strong>
+            <small>{statusLabel}</small>
+          </span>
         </div>
         {session.required && (
           <button type="button" className="rail-signout" onClick={signOut}>Sign out</button>

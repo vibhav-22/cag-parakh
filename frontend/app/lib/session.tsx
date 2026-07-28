@@ -52,15 +52,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(async () => {
+    let active = true;
+
+    const checkService = async () => {
       try {
         const response = await fetch(`${API_URL}/health`);
-        setServiceStatus(response.ok ? "online" : "offline");
+        if (active) setServiceStatus(response.ok ? "online" : "offline");
       } catch {
-        setServiceStatus("offline");
+        if (active) setServiceStatus("offline");
       }
-    }, 30000);
-    return () => window.clearInterval(timer);
+    };
+
+    void checkService();
+    const timer = window.setInterval(checkService, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const signOut = useCallback(async () => {

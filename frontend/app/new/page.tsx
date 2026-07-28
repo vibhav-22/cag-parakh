@@ -10,15 +10,16 @@ import ControlPanel, { type SetupProgress } from "../components/control-panel";
  * app: one column, one job, one button. Its identity signal is the three-step
  * track in the header band, which tracks the real state of the form below.
  */
-const STEP_LABELS = ["Select files", "Choose checks", "Run"] as const;
+const STEP_LABELS = ["Upload", "Configure", "Process", "Review"] as const;
 
 function StepIndicator({ progress }: { progress: SetupProgress }) {
   // The active step is simply the first one that is not satisfied yet.
-  const active = progress.files === 0 ? 1 : progress.checks === 0 ? 2 : 3;
+  const active = progress.files === 0 ? 1 : progress.checks === 0 ? 2 : 2;
   const hints = [
     progress.files === 0 ? "Nothing selected" : `${progress.files} ${progress.files === 1 ? "document" : "documents"}`,
     progress.analyzers === 0 ? "Loading detectors" : `${progress.checks} of ${progress.analyzers} selected`,
-    active === 3 ? "Ready to screen" : "Waiting on setup",
+    "Runs after submission",
+    "Evidence and decisions",
   ];
 
   return (
@@ -49,9 +50,9 @@ export default function NewReviewPage() {
       chrome="rail"
       header={
         <RouteHeader
-          eyebrow="Setup"
-          title="New review"
-          sub="Pick PDFs or images, choose the checks, and start screening. Analysis runs locally and the case keeps its own URL."
+          eyebrow="Forensic intake / New case"
+          title="New screening"
+          sub="Submit source documents for integrity, metadata, and manipulation analysis."
           below={<StepIndicator progress={progress} />}
         />
       }

@@ -140,6 +140,24 @@
 .app[data-route="new"] .field-label span { font-size: 12.5px; }
 .app[data-route="new"] .field-label small { font-size: 11.5px; }
 
+.app[data-route="new"] .batch-name-field { display: block; margin-bottom: 20px; }
+.app[data-route="new"] .batch-name-field input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.app[data-route="new"] .batch-name-field input:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+.app[data-route="new"] .batch-name-hint { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+
 .app[data-route="new"] .dropzone {
   min-height: 190px;
   padding: 30px;
@@ -353,4 +371,178 @@
 @media (prefers-reduced-motion: reduce) {
   .app[data-route="new"] .step-node,
   .app[data-route="new"] .run-overrides-chevron { transition-duration: 1ms; }
+}
+
+/* ── Pre-flight ────────────────────────────────────────────────────────────
+   Catching a resubmitted file, or one that will never open, belongs at intake —
+   while the reviewer is still standing here and can swap it out. Duplicates are
+   accent (a fact to check); blockers are rose (this file is leaving the batch). */
+.app[data-route="new"] .preflight {
+  margin-top: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="new"] .pf-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.app[data-route="new"] .pf-head strong { font-size: 11px; }
+.app[data-route="new"] .pf-head span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.app[data-route="new"] .pf-list {
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.app[data-route="new"] .pf-list > li {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.app[data-route="new"] .pf-list > li.duplicate { border-left-color: var(--accent); }
+.app[data-route="new"] .pf-list > li.warn { border-left-color: var(--warning); }
+.app[data-route="new"] .pf-list > li.blocked { border-left-color: var(--danger); }
+.app[data-route="new"] .pf-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.app[data-route="new"] .pf-file strong { font-size: 11px; overflow-wrap: anywhere; }
+.app[data-route="new"] .pf-file small { color: var(--muted); font-size: 9.5px; }
+.app[data-route="new"] .pf-reason { margin: 6px 0 0; color: var(--ink-soft); font-size: 10.5px; line-height: 1.55; }
+.app[data-route="new"] .pf-reason p { margin: 0; }
+.app[data-route="new"] .pf-reason ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.app[data-route="new"] .pf-reason ul li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.app[data-route="new"] .pf-reason ul a { color: var(--accent); }
+.app[data-route="new"] .pf-reason ul small { color: var(--muted); font-size: 9.5px; }
+
+/* ── Screening tests (profiles) ────────────────────────────────────────────
+   The flowchart's "use saved profile" / "create screening profile" step, sat at
+   the top of intake. Accent-marked because choosing the test is the decision
+   that frames everything below it. */
+.app[data-route="new"] .profile-block .setup-ordinal {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.app[data-route="new"] .profile-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.app[data-route="new"] .profile-picker { flex: 1 1 240px; min-width: 0; }
+.app[data-route="new"] .profile-picker select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+.app[data-route="new"] .profile-picker select:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+
+.app[data-route="new"] .profile-active {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+.app[data-route="new"] .profile-active.modified { border-left-color: var(--warning); }
+.app[data-route="new"] .profile-active-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.app[data-route="new"] .profile-active-head strong { font-size: 12px; }
+.app[data-route="new"] .profile-tag {
+  padding: 1px 8px;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 9px;
+  font-weight: 700;
+}
+.app[data-route="new"] .profile-active-head .text-button { margin-left: auto; }
+.app[data-route="new"] .profile-goal { margin: 6px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+.app[data-route="new"] .profile-guidance {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.app[data-route="new"] .profile-guidance span,
+.app[data-route="new"] .profile-form label small,
+.app[data-route="new"] .profile-form-note { color: var(--muted); }
+.app[data-route="new"] .profile-guidance span {
+  display: block;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.app[data-route="new"] .profile-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+.app[data-route="new"] .profile-form label { display: grid; gap: 5px; }
+.app[data-route="new"] .profile-form label span { font-size: 10px; font-weight: 700; }
+.app[data-route="new"] .profile-form label span b { color: var(--accent); }
+.app[data-route="new"] .profile-form label small { font-weight: 500; margin-left: 6px; }
+.app[data-route="new"] .profile-form input,
+.app[data-route="new"] .profile-form textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.app[data-route="new"] .profile-form textarea { resize: vertical; }
+.app[data-route="new"] .profile-form input:focus,
+.app[data-route="new"] .profile-form textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+.app[data-route="new"] .profile-form-note { margin: 0; font-size: 10px; line-height: 1.5; }
+.app[data-route="new"] .profile-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.app[data-route="new"] .secondary-button {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="new"] .profile-notice { margin: 10px 0 0; color: var(--accent-hover); font-size: 10.5px; }
+
+/* Each check states what earns it a pass. The rule belongs to the detector, so
+   this is a label, not a control. */
+.app[data-route="new"] .analyzer-criterion {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-style: normal;
+  line-height: 1.45;
 }

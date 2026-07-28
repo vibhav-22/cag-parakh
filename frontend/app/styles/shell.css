@@ -72,6 +72,17 @@
   --route-pad: 28px;
 }
 
+.app[data-route="reports"] {
+  --route-canvas: #dceaf9;
+  --route-surface: #ffffff;
+  --route-panel: #f3f7fb;
+  --route-line: #dce5ef;
+  --route-max: none;
+  --route-pad: 20px;
+  --route-gap: 16px;
+  --rail-width: 168px;
+}
+
 .app[data-route="batches"] {
   --route-canvas: #0b0b11;
   --route-surface: #0f0f17;
@@ -99,6 +110,22 @@
   --route-pad: 22px;
   --route-gap: 18px;
 }
+
+.app[data-route="reports"] .nav-rail {
+  background: #091425;
+  border-color: #17243a;
+}
+.app[data-route="reports"] .nav-rail a { color: #8390a2; }
+.app[data-route="reports"] .nav-rail a:hover { color: #f5f8ff; background: #111f35; }
+.app[data-route="reports"] .nav-rail a[aria-current="page"] {
+  color: #ffffff;
+  border-color: #2856d8;
+  background: #17316d;
+}
+.app[data-route="reports"] .nav-rail a[aria-current="page"] svg { color: #7ea2ff; }
+.app[data-route="reports"] .rail-foot { border-color: #17243a; }
+.app[data-route="reports"] .rail-account strong { color: #f3f6fb; }
+.app[data-route="reports"] .rail-brand { border-bottom-color: #17243a; }
 
 /* Home is a poster, not a screen. The vignette pulls the eye to the
    centre and hides the fact that there is no panel structure at all. */

@@ -11,6 +11,7 @@ export function titleCase(value: string) {
 export function analyzerLabel(value: string) {
   if (value === "tamper_scan") return "Whitener Detection";
   if (value === "photo_detection") return "Document Photo";
+  if (value === "qr_presence") return "QR Presence";
   return titleCase(value);
 }
 
@@ -32,8 +33,12 @@ export function shortLabel(id: string) {
 
 export function artifactLabel(path: string) {
   const filename = path.split("/").at(-1) || path;
-  if (filename === "detected_photo.jpg") return "Open extracted photo ↗";
-  if (filename.endsWith("_annotated.pdf")) return "Open annotated PDF ↗";
+  const detectedPhoto = filename.match(/^detected_photo(?:_(\d+))?\.jpe?g$/i);
+  if (detectedPhoto) {
+    const number = detectedPhoto[1] ? Number(detectedPhoto[1]) : 1;
+    return `Open extracted photo ${number} ↗`;
+  }
+  if (filename.endsWith("annotated.pdf")) return "Open annotated PDF ↗";
   const page = filename.match(/^page_(\d+)_annotated\.png$/)?.[1];
   return page ? `Open annotated page ${Number(page)} ↗` : "Open detector artifact ↗";
 }
@@ -41,8 +46,48 @@ export function artifactLabel(path: string) {
 export function resultTone(result: NormalizedResult) {
   if (result.outcome === "error") return "danger";
   if (result.outcome === "review") return "warning";
-  if (result.outcome === "inconclusive") return "neutral";
+  if (result.outcome === "inconclusive" || result.outcome === "info") return "neutral";
   return "good";
+}
+
+/**
+ * How each check result reads on screen.
+ *
+ * Five states, not two. A detector that could not run is not a failure, and a
+ * check that reports provenance is not a pass — collapsing either into a cross
+ * is exactly what makes a tick/cross grid impossible to read.
+ */
+export const CHECK_STATES = {
+  pass: { glyph: "✓", label: "Pass", tone: "good" },
+  fail: { glyph: "✕", label: "Fail", tone: "warning" },
+  inconclusive: { glyph: "?", label: "Could not determine", tone: "neutral" },
+  info: { glyph: "i", label: "Reported", tone: "info" },
+  error: { glyph: "E", label: "Check error", tone: "danger" },
+} as const;
+
+export type CheckStatusKey = keyof typeof CHECK_STATES;
+
+export function checkStatusOf(result: NormalizedResult | undefined): CheckStatusKey {
+  const status = result?.check?.status;
+  if (status && status in CHECK_STATES) return status as CheckStatusKey;
+  // A result stored before criteria existed still has to render, so fall back
+  // to the outcome it was saved with.
+  if (!result) return "inconclusive";
+  if (result.outcome === "error") return "error";
+  if (result.outcome === "review") return "fail";
+  if (result.outcome === "clear") return "pass";
+  if (result.outcome === "info") return "info";
+  return "inconclusive";
+}
+
+export function checkState(result: NormalizedResult | undefined) {
+  return CHECK_STATES[checkStatusOf(result)];
+}
+
+// Checks that grade the document. Metadata reports how the file was made and
+// takes no position, so it is excluded from every pass/fail total.
+export function gradedResults(job: Job): NormalizedResult[] {
+  return Object.values(job.results || {}).filter((result) => result.outcome !== "info");
 }
 
 export function riskTone(risk: NormalizedResult["risk"]) {
@@ -107,33 +152,52 @@ export function initialAnalysisSettings(): AnalysisSettings {
 }
 
 // Status-cell states for the batch outcome matrix. Each pairs a glyph with a
-// label so meaning never relies on color alone.
+// label so meaning never relies on color alone. The five result states come
+// from the check itself; these three are lifecycle, not verdict.
 export const CELL_STATES = {
-  good: { glyph: "✓", label: "Clear" },
-  warning: { glyph: "!", label: "Needs review" },
-  neutral: { glyph: "?", label: "Inconclusive" },
-  danger: { glyph: "×", label: "Check error" },
+  good: { glyph: "✓", label: "Pass" },
+  warning: { glyph: "✕", label: "Fail" },
+  neutral: { glyph: "?", label: "Could not determine" },
+  info: { glyph: "i", label: "Reported, not graded" },
+  danger: { glyph: "E", label: "Check error" },
   pending: { glyph: "·", label: "Pending" },
   running: { glyph: "…", label: "Running" },
   empty: { glyph: "–", label: "Not requested" },
 } as const;
 export type CellTone = keyof typeof CELL_STATES;
 
-export function cellFor(job: Job, analyzer: string): { tone: CellTone; summary?: string } {
+export type MatrixCell = {
+  tone: CellTone;
+  summary?: string;
+  glyph?: string;
+  label?: string;
+  actual?: string;
+};
+
+export function cellFor(job: Job, analyzer: string): MatrixCell {
   if (!job.analyzers.includes(analyzer)) return { tone: "empty" };
   const result = job.results[analyzer];
   if (!result) {
     return { tone: job.analyzer_runs[analyzer]?.status === "running" ? "running" : "pending" };
   }
-  const tone = resultTone(result) as CellTone;
-  return { tone, summary: result.summary };
+  const state = checkState(result);
+  return {
+    tone: state.tone as CellTone,
+    glyph: state.glyph,
+    label: state.label,
+    summary: result.check?.reason || result.summary,
+    actual: result.check?.criterion,
+  };
 }
 
 export function docVerdict(job: Job): { label: string; tone: string } {
+  // A document a reviewer has declared unscreenable is not a pending result and
+  // not a finding. It is closed, and it must leave the flagged queue.
+  if (job.unanalyzable) return { label: "Unanalyzable", tone: "neutral" };
   if (job.status !== "completed") {
     return { label: job.status === "running" ? "Analyzing" : "Queued", tone: "pending" };
   }
-  const results = Object.values(job.results);
+  const results = gradedResults(job);
   if (results.some((item) => item.outcome === "review")) return { label: "Needs review", tone: "warning" };
   if (results.some((item) => item.outcome === "error")) return { label: "Check errors", tone: "danger" };
   if (results.length > 0 && results.every((item) => item.outcome === "clear")) return { label: "Clear", tone: "good" };
@@ -157,6 +221,97 @@ export function verdictSubline(
   if (tone === "warning") return `${counts.review} ${counts.review === 1 ? "check" : "checks"} flagged for review${counts.errors ? `, ${counts.errors} could not complete` : ""}. Examine the marked evidence.`;
   if (tone === "danger") return `${counts.errors} ${counts.errors === 1 ? "check" : "checks"} could not complete. Re-run to confirm the result.`;
   return "Screening was inconclusive. Review the marked evidence and record a decision.";
+}
+
+// The four calls a reviewer can record. `escalated` exists because a reviewer
+// who is not the right person to decide needs somewhere to put the case that is
+// not "needs investigation" — that is a finding about the document, not a
+// handoff.
+export const DECISION_OPTIONS = [
+  { value: "verified", label: "Verified", hint: "Accepted. No further action on this document." },
+  { value: "needs_investigation", label: "Needs investigation", hint: "Flagged for follow-up with the evidence on record." },
+  { value: "inconclusive", label: "Inconclusive", hint: "The evidence does not settle it either way." },
+  { value: "escalated", label: "Escalate", hint: "Hand to a second reviewer and name them." },
+] as const;
+
+export function decisionLabel(value: string | undefined) {
+  return DECISION_OPTIONS.find((option) => option.value === value)?.label
+    || (value ? titleCase(value) : "Not recorded");
+}
+
+// Checks that ran and could not finish. These are the retry candidates: a
+// detector crash is not a finding about the document.
+export function failedAnalyzers(job: Job): string[] {
+  return Object.entries(job.analyzer_runs || {})
+    .filter(([, run]) => run?.status === "failed")
+    .map(([name]) => name);
+}
+
+// The file extension as a short, uppercase type tag for the batch matrix.
+export function documentTypeLabel(filename: string) {
+  const ext = filename.split(".").pop();
+  return ext && ext !== filename ? ext.toUpperCase() : "FILE";
+}
+
+// A composite authenticity read: the share of completed checks that came back
+// clear. Not a probability of forgery — a plain count, presented as a bar so a
+// reviewer scanning fifty rows can spot the low ones without reading numbers.
+export function authenticityPercent(job: Job): number | null {
+  const results = gradedResults(job);
+  if (results.length === 0) return null;
+  const clear = results.filter((item) => item.outcome === "clear").length;
+  return Math.round((clear / results.length) * 100);
+}
+
+// Short labels for the checks that actually flagged something on this
+// document, for the "Forensic Signals" chips. Real detector output only —
+// nothing here is inferred.
+export function flaggedSignalLabels(job: Job): string[] {
+  return Object.entries(job.results || {})
+    .filter(([, result]) => result.outcome === "review" || result.outcome === "error")
+    .map(([analyzer]) => shortLabel(analyzer));
+}
+
+// Looks for a detector-reported confidence-like number (0–1) in a result's raw
+// output. Several detectors surface one under different keys; none is
+// fabricated here — the bar is only shown when a real value is found.
+export function resultConfidencePercent(result: NormalizedResult): number | null {
+  const raw = result.raw || {};
+  for (const key of ["confidence", "score", "probability", "similarity"]) {
+    const value = raw[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.round((value <= 1 ? value * 100 : value));
+    }
+  }
+  return null;
+}
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+/**
+ * Promote the checks and thresholds an actual run used into the saved defaults.
+ *
+ * This is the inversion of profile-first setup: nobody can write a useful
+ * screening rule before they have seen what the output looks like, so the
+ * profile is captured from a run that already happened. /settings still owns the
+ * key; this writes through the same shape so a round trip cannot drop
+ * `default_analyzers`.
+ */
+export function saveRunAsDefaults(analyzers: string[], settings: AnalysisSettings): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ ...settings, default_analyzers: analyzers }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Keys hidden from the generic evidence table: internals, blobs, and values

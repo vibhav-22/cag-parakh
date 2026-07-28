@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from . import checks
+
 
 def utc_now() -> datetime:
     """Return an aware UTC timestamp for persisted API state."""
@@ -26,6 +28,9 @@ class AnalyzerOutcome(str, Enum):
     REVIEW = "review"
     INCONCLUSIVE = "inconclusive"
     ERROR = "error"
+    # A check that reports facts and takes no position — metadata provenance is
+    # the only one today. It never counts toward clear or flagged totals.
+    INFO = "info"
 
 
 class RiskLevel(str, Enum):
@@ -39,6 +44,21 @@ class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
+
+
+class CheckStatus(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    INCONCLUSIVE = "inconclusive"
+    INFO = "info"
+    ERROR = "error"
+
+
+class CheckFact(BaseModel):
+    """One labelled value a detector reported, for display beside its verdict."""
+
+    label: str
+    value: str
 
 
 class EvidenceRegion(BaseModel):
@@ -55,6 +75,21 @@ class EvidenceRegion(BaseModel):
     height: float = Field(gt=0, le=1)
 
 
+class CheckVerdict(BaseModel):
+    """One detector's own pass/fail rule, applied to one document.
+
+    `criterion` is the rule stated in advance and is identical for every
+    document. `reason` is why this document landed where it did — and for an
+    inconclusive result it must say why the check could not reach a conclusion,
+    because "inconclusive" with no explanation tells a reviewer nothing.
+    """
+
+    status: CheckStatus
+    criterion: str
+    reason: str
+    facts: list[CheckFact] = Field(default_factory=list)
+
+
 class NormalizedAnalyzerResult(BaseModel):
     """Stable result envelope shared by every document analyzer."""
 
@@ -62,6 +97,9 @@ class NormalizedAnalyzerResult(BaseModel):
     outcome: AnalyzerOutcome
     risk: RiskLevel = RiskLevel.UNKNOWN
     summary: str
+    # The detector's fixed criterion and how this document met it. Optional only
+    # so results persisted before per-detector criteria existed still load.
+    check: CheckVerdict | None = None
     findings_count: int = Field(default=0, ge=0)
     artifacts: list[str] = Field(default_factory=list)
     regions: list[EvidenceRegion] = Field(default_factory=list)
@@ -116,9 +154,77 @@ class JobState(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     analyzers: list[str]
+    settings: dict[str, dict[str, Any]] = Field(default_factory=dict)
     analyzer_runs: dict[str, AnalyzerRunState]
     results: dict[str, NormalizedAnalyzerResult]
     review: dict[str, Any] | None = None
+    # SHA-256 of the stored document bytes. This is the join key for "this exact
+    # file was screened before" — never a claim about the underlying document,
+    # because two photos of one certificate hash differently.
+    sha256: str | None = None
+    unanalyzable: bool = False
+    unanalyzable_reason: str | None = None
+    # The named screening test this run was started under: {id, name, goal,
+    # guidance}. Null for an ad-hoc run with no profile.
+    profile: dict[str, Any] | None = None
+
+
+class PriorScreening(BaseModel):
+    """A previous screening of byte-identical content."""
+
+    job_id: str
+    batch_id: str | None = None
+    filename: str
+    created_at: datetime
+    machine_verdict: str
+    review_decision: str | None = None
+
+
+class PreflightFile(BaseModel):
+    """One upload candidate, checked before a batch is created."""
+
+    filename: str
+    size_bytes: int = Field(ge=0)
+    sha256: str | None = None
+    readable: bool
+    page_count: int | None = None
+    # Set when the file cannot be screened at all, so intake can drop it before
+    # the reviewer waits on an analysis that was never going to run.
+    blocker: str | None = None
+    # Set when the file opens but a text-layer-free scan will limit some checks.
+    warning: str | None = None
+    prior_screenings: list[PriorScreening] = Field(default_factory=list)
+
+
+class PreflightReport(BaseModel):
+    files: list[PreflightFile]
+    duplicate_count: int = Field(ge=0)
+    blocked_count: int = Field(ge=0)
+
+
+class BatchState(BaseModel):
+    """Public representation of a multi-document screening batch."""
+
+    id: str
+    # User-entered at intake, or generated from the batch's documents when left
+    # blank — always non-empty so a batch is never left with nothing to search.
+    name: str
+    created_at: datetime
+    status: JobStatus
+    document_count: int = Field(ge=1)
+    jobs: list[JobState]
+
+
+class BatchSummary(BaseModel):
+    """History-list row for a stored batch."""
+
+    id: str
+    name: str
+    created_at: datetime
+    status: JobStatus
+    document_count: int = Field(ge=1)
+    completed_documents: int = Field(ge=0)
+    flagged_documents: int = Field(ge=0)
 
 
 class DocumentPage(BaseModel):
@@ -184,6 +290,13 @@ def _verdict(payload: dict[str, Any]) -> str:
 
 def _clip(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+def _float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _normalized_region(
@@ -287,6 +400,45 @@ def _evidence_regions(
             if region:
                 regions.append(region)
 
+    if analyzer_id == "photo_detection":
+        for index, photo in enumerate(payload.get("photos", []), start=1):
+            if not isinstance(photo, dict) or not isinstance(photo.get("bbox_px"), (list, tuple)):
+                continue
+            bbox = photo["bbox_px"]
+            if len(bbox) < 4:
+                continue
+            page = int(photo.get("page") or payload.get("page") or 1)
+            source_size = photo.get("source_size_px")
+            if isinstance(source_size, (list, tuple)) and len(source_size) >= 2:
+                pixels = float(source_size[0]), float(source_size[1])
+            else:
+                # The photo detector has historically rendered PDF pages at
+                # 300 DPI. This fallback gives saved results boxes without
+                # forcing a detector rerun; new output carries source_size_px.
+                dpi = float(payload.get("render_dpi") or 300)
+                pixels = _page_pixels(page, dpi, page_sizes)
+            if not pixels or pixels[0] <= 0 or pixels[1] <= 0:
+                continue
+            confidence = _float(photo.get("face_confidence"))
+            passed = photo.get("passed") is True
+            message = f"Document photo {index} detected"
+            if confidence:
+                message += f" ({confidence:.0%} face confidence)"
+            message += "."
+            region = _normalized_region(
+                page=page,
+                kind="document_photo",
+                label=f"Document photo {index}",
+                message=message,
+                severity=RiskLevel.LOW if passed else RiskLevel.MEDIUM,
+                x0=float(bbox[0]) / pixels[0],
+                y0=float(bbox[1]) / pixels[1],
+                x1=float(bbox[2]) / pixels[0],
+                y1=float(bbox[3]) / pixels[1],
+            )
+            if region:
+                regions.append(region)
+
     if analyzer_id == "scanner_noise":
         for item in payload.get("suspicious_regions", []):
             if not isinstance(item, dict) or not isinstance(item.get("bbox_normalized"), dict):
@@ -330,10 +482,43 @@ def _evidence_regions(
             if region:
                 regions.append(region)
 
+    if analyzer_id == "signature":
+        for item in payload.get("regions", []):
+            if not isinstance(item, dict) or not isinstance(item.get("bbox_normalized"), dict):
+                continue
+            bbox = item["bbox_normalized"]
+            severity = _risk({"risk": item.get("severity")})
+            region = _normalized_region(
+                page=int(item.get("page", 1)),
+                kind=str(item.get("kind") or "signature"),
+                label=str(item.get("label") or "Signature"),
+                message=str(item.get("reason") or "A handwritten signature was detected."),
+                severity=severity,
+                x0=float(bbox.get("x0", 0)),
+                y0=float(bbox.get("y0", 0)),
+                x1=float(bbox.get("x1", 0)),
+                y1=float(bbox.get("y1", 0)),
+            )
+            if region:
+                regions.append(region)
+
     return regions[:100]
 
 
-def _outcome(analyzer_id: str, payload: dict[str, Any], risk: RiskLevel) -> AnalyzerOutcome:
+# Every check's own rule decides its outcome. The mapping is one-to-one so the
+# tick a reviewer sees and the outcome the batch counts can never disagree.
+_CHECK_OUTCOMES = {
+    checks.PASS: AnalyzerOutcome.CLEAR,
+    checks.FAIL: AnalyzerOutcome.REVIEW,
+    checks.INCONCLUSIVE: AnalyzerOutcome.INCONCLUSIVE,
+    checks.INFO: AnalyzerOutcome.INFO,
+    checks.ERROR: AnalyzerOutcome.ERROR,
+}
+
+
+def _legacy_outcome(analyzer_id: str, payload: dict[str, Any], risk: RiskLevel) -> AnalyzerOutcome:
+    """The pre-criteria heuristic. Retained for analyzers with no rule of their own."""
+
     status = str(payload.get("status") or "").strip().lower()
     if status == "error":
         return AnalyzerOutcome.ERROR
@@ -347,7 +532,7 @@ def _outcome(analyzer_id: str, payload: dict[str, Any], risk: RiskLevel) -> Anal
         return AnalyzerOutcome.REVIEW
     if any(token in verdict for token in ("inconclusive", "insufficient", "uncertain")):
         return AnalyzerOutcome.INCONCLUSIVE
-    if verdict in {"clean", "passed", "clear", "likely_same_phone_or_workflow", "compatible_with_same_phone"}:
+    if verdict in {"clean", "passed", "clear", "readable", "likely_same_phone_or_workflow", "compatible_with_same_phone"}:
         return AnalyzerOutcome.CLEAR
 
     if analyzer_id == "qr_presence" and payload.get("qr_found") is False:
@@ -359,6 +544,16 @@ def _outcome(analyzer_id: str, payload: dict[str, Any], risk: RiskLevel) -> Anal
     return AnalyzerOutcome.CLEAR
 
 
+_GENERATION_SUMMARIES = {
+    "image_editor": "Made with an image editor",
+    "scanner": "Made by a scanner or capture pipeline",
+    "browser_or_converter": "Made by a browser print or converter",
+    "office_export": "Exported from an office application",
+    "pdf_library": "Generated by a PDF library",
+    "unknown": "Generation pipeline unidentified",
+}
+
+
 def _summary(analyzer_id: str, payload: dict[str, Any], outcome: AnalyzerOutcome, risk: RiskLevel) -> str:
     if outcome is AnalyzerOutcome.ERROR:
         return str(payload.get("detail") or "Analyzer failed")
@@ -368,6 +563,58 @@ def _summary(analyzer_id: str, payload: dict[str, Any], outcome: AnalyzerOutcome
         return note.strip()
 
     verdict = _verdict(payload)
+    probability = payload.get("document_probability")
+    if analyzer_id == "metadata":
+        # This check reports provenance, so its one-liner names the pipeline that
+        # made the file rather than a risk grade the check does not assign.
+        generation = payload.get("generation")
+        if isinstance(generation, dict):
+            origin = _GENERATION_SUMMARIES.get(str(generation.get("kind")), "Generation pipeline unidentified")
+            source = generation.get("producer") or generation.get("creator")
+            return f"{origin}{f' · {source}' if source else ''}"
+    if analyzer_id == "font_analysis":
+        names, referenced_names, _ = checks.font_inventory(payload)
+        count = len(names)
+        if count == 0:
+            if referenced_names:
+                return f"No embedded fonts · references {', '.join(referenced_names)}"
+            return "No embedded fonts"
+        return f"{count} embedded font{'' if count == 1 else 's'}: {', '.join(names)}"
+    if analyzer_id == "photo_detection":
+        if payload.get("photo_found") is True:
+            count = payload.get("photo_count")
+            count = int(count) if isinstance(count, int) and count > 0 else 1
+            noun = "photo" if count == 1 else "photos"
+            if payload.get("passed") is True:
+                return f"{count} document {noun} detected"
+            return f"{count} {noun} detected - quality needs review"
+        return "No document photo detected"
+    if analyzer_id == "tamper_scan" and isinstance(probability, (int, float)):
+        label = {
+            "likely_whitener": "Likely whitener detected",
+            "possible_whitener": "Possible whitener detected",
+            "no_whitener_evidence": "No whitener evidence",
+        }.get(verdict, "Whitener analysis complete")
+        return f"{label} · {float(probability):.0%} probability"
+    if analyzer_id == "readability" and verdict and isinstance(payload.get("score"), int):
+        label = verdict.replace("_", " ").strip().capitalize()
+        return (
+            f"{label} · {payload['score']}/100 "
+            f"({payload.get('tests_passed', 0)}/{payload.get('tests_total', 0)} tests passed)"
+        )
+    if analyzer_id == "qr_presence" and isinstance(payload.get("expected_min_codes"), int):
+        expected = payload["expected_min_codes"]
+        count = int(payload.get("qr_count") or 0)
+        if count < expected:
+            return f"Expected at least {expected} QR code(s); found {count}"
+    if analyzer_id == "signature" and isinstance(payload.get("present"), bool):
+        count = int(payload.get("count") or 0)
+        expected = payload.get("expected_min_signatures")
+        if isinstance(expected, int) and expected > 0 and count < expected:
+            return f"Expected at least {expected} signature(s); found {count}"
+        if payload["present"]:
+            return f"{count} signature(s) detected"
+        return "No signature detected"
     if verdict:
         return verdict.replace("_", " ").strip().capitalize()
 
@@ -405,12 +652,17 @@ def normalize_analyzer_result(
             "value": payload,
         }
     risk = _risk(raw)
-    outcome = _outcome(analyzer_id, raw, risk)
+    verdict = checks.evaluate(analyzer_id, raw)
+    if analyzer_id in checks.EVALUATORS:
+        outcome = _CHECK_OUTCOMES[verdict.status]
+    else:
+        outcome = _legacy_outcome(analyzer_id, raw, risk)
     artifacts = raw.get("artifacts")
     return NormalizedAnalyzerResult(
         analyzer_id=analyzer_id,
         outcome=outcome,
         risk=risk,
+        check=CheckVerdict.model_validate(verdict.as_dict()),
         summary=_summary(analyzer_id, raw, outcome, risk),
         findings_count=_findings_count(raw),
         artifacts=[str(item) for item in artifacts] if isinstance(artifacts, list) else [],

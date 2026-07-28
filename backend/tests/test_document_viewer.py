@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import fitz
+from fastapi import HTTPException
 
 from backend.service import JobStore
 
@@ -15,6 +16,28 @@ app_module = importlib.import_module("backend.app")
 
 
 class DocumentViewerTests(unittest.TestCase):
+    def test_nested_analyzer_artifacts_are_served_without_allowing_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            test_store = JobStore(Path(directory))
+            job = test_store.create("sample.pdf", b"%PDF-1.7", ["tamper_scan"])
+            artifact = (
+                test_store.data_dir
+                / f"{job['id']}-tamper_scan-report"
+                / job["id"]
+                / "page_001_annotated.png"
+            )
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"png")
+            with patch.object(app_module, "store", test_store):
+                response = app_module.get_artifact(
+                    job["id"], "tamper_scan", f"{job['id']}/page_001_annotated.png"
+                )
+                with self.assertRaises(HTTPException) as raised:
+                    app_module.get_artifact(job["id"], "tamper_scan", "../sample.pdf")
+
+        self.assertEqual(Path(response.path), artifact)
+        self.assertEqual(raised.exception.status_code, 404)
+
     def test_document_is_inline_and_pages_render_as_png(self) -> None:
         document = fitz.open()
         page = document.new_page(width=200, height=300)

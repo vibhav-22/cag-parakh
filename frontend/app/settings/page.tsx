@@ -6,6 +6,15 @@ import RouteHeader from "../components/route-header";
 import NavLink from "../components/nav-link";
 import AdvancedSettings, { AnalysisSettings, DEFAULT_ANALYSIS_SETTINGS } from "../advanced-settings";
 import { API_URL, analyzerLabel, initialAnalysisSettings } from "../lib/format";
+import {
+  MAX_PROFILE_GOAL,
+  MAX_PROFILE_GUIDANCE,
+  MAX_PROFILE_NAME,
+  ScreeningProfile,
+  deleteProfile,
+  listProfiles,
+  saveProfile,
+} from "../lib/profiles";
 import { useSession } from "../lib/session";
 import type { Analyzer } from "../lib/types";
 
@@ -24,6 +33,7 @@ const STORAGE_KEY = "parakh-analysis-settings";
 const SECTIONS = [
   { id: "checks", label: "Default checks" },
   { id: "thresholds", label: "Thresholds" },
+  { id: "profiles", label: "Screening tests" },
   { id: "session", label: "Session" },
   { id: "about", label: "About" },
 ] as const;
@@ -95,6 +105,43 @@ export default function SettingsPage() {
   const [saveState, setSaveState] = useState<"idle" | "saved" | "failed">("idle");
   const [confirmReset, setConfirmReset] = useState(false);
   const [active, setActive] = useState<SectionId>("checks");
+
+  // Screening tests (profiles). This route manages the library — the name,
+  // goal, and decision rule of each saved test, plus deletion. Creating a test
+  // and choosing its checks/thresholds happens on /new, where the check UI
+  // lives; a test carries those, and they are shown here read-only.
+  const [profiles, setProfiles] = useState<ScreeningProfile[]>([]);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [profileDraft, setProfileDraft] = useState<{ name: string; goal: string; guidance: string }>({ name: "", goal: "", guidance: "" });
+  const [profileError, setProfileError] = useState("");
+  useEffect(() => { setProfiles(listProfiles()); }, []);
+
+  function beginEditProfile(profile: ScreeningProfile) {
+    setEditingProfileId(profile.id);
+    setProfileDraft({ name: profile.name, goal: profile.goal, guidance: profile.guidance });
+    setProfileError("");
+  }
+
+  function saveProfileEdit(profile: ScreeningProfile) {
+    if (!profileDraft.name.trim()) { setProfileError("A test needs a name."); return; }
+    const saved = saveProfile({
+      id: profile.id,
+      name: profileDraft.name,
+      goal: profileDraft.goal,
+      guidance: profileDraft.guidance,
+      analyzers: profile.analyzers,
+      settings: profile.settings,
+    });
+    if (!saved) { setProfileError("This browser is blocking local storage."); return; }
+    setProfiles(listProfiles());
+    setEditingProfileId(null);
+  }
+
+  function removeProfile(id: string) {
+    deleteProfile(id);
+    setProfiles(listProfiles());
+    if (editingProfileId === id) setEditingProfileId(null);
+  }
 
   const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
 
@@ -342,6 +389,88 @@ export default function SettingsPage() {
                 ? "Threshold controls need the check list from the screening service. Retry above once it is running."
                 : "Loading threshold controls…"}
             </p>
+          )}
+        </section>
+
+        {/* ---- Screening tests (profiles) ---------------------- */}
+        <section
+          className="settings-panel"
+          id="profiles"
+          aria-labelledby="profiles-title"
+          ref={(node) => { sectionRefs.current.profiles = node; }}
+        >
+          <header className="settings-panel-head">
+            <h2 id="profiles-title">Screening tests</h2>
+            <p>
+              Named tests bundle a goal, a decision rule, and a set of checks and thresholds, so the
+              same screening is applied the same way every time. Create one from{" "}
+              <NavLink href="/new">New review</NavLink> once you have a setup you want to reuse; edit
+              its wording or remove it here.
+            </p>
+          </header>
+
+          {profiles.length === 0 ? (
+            <p className="settings-muted">
+              No screening tests saved yet. On the New review screen, choose your checks and
+              thresholds, then “Create a test from this setup”.
+            </p>
+          ) : (
+            <ul className="profile-manage-list">
+              {profiles.map((profile) => (
+                <li key={profile.id} className="profile-manage-item">
+                  {editingProfileId === profile.id ? (
+                    <div className="profile-manage-edit">
+                      <label>
+                        <span>Name</span>
+                        <input
+                          value={profileDraft.name}
+                          maxLength={MAX_PROFILE_NAME}
+                          onChange={(event) => setProfileDraft((draft) => ({ ...draft, name: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Goal</span>
+                        <textarea
+                          value={profileDraft.goal}
+                          maxLength={MAX_PROFILE_GOAL}
+                          rows={2}
+                          onChange={(event) => setProfileDraft((draft) => ({ ...draft, goal: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Decision rule</span>
+                        <textarea
+                          value={profileDraft.guidance}
+                          maxLength={MAX_PROFILE_GUIDANCE}
+                          rows={3}
+                          onChange={(event) => setProfileDraft((draft) => ({ ...draft, guidance: event.target.value }))}
+                        />
+                      </label>
+                      {profileError && <p className="profile-manage-error" role="alert">{profileError}</p>}
+                      <div className="profile-manage-actions">
+                        <button type="button" className="text-button" onClick={() => setEditingProfileId(null)}>Cancel</button>
+                        <button type="button" className="primary-button" onClick={() => saveProfileEdit(profile)}>Save changes</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="profile-manage-copy">
+                        <strong>{profile.name}</strong>
+                        {profile.goal && <p className="profile-manage-goal">{profile.goal}</p>}
+                        {profile.guidance && <p className="profile-manage-rule"><span>Decision rule</span>{profile.guidance}</p>}
+                        <small className="profile-manage-checks">
+                          {profile.analyzers.length} check{profile.analyzers.length === 1 ? "" : "s"}: {profile.analyzers.map(checkLabel).join(", ") || "none selected"}
+                        </small>
+                      </div>
+                      <div className="profile-manage-buttons">
+                        <button type="button" className="text-button" onClick={() => beginEditProfile(profile)}>Edit</button>
+                        <button type="button" className="settings-danger-button" onClick={() => removeProfile(profile.id)}>Delete</button>
+                      </div>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 

@@ -19,10 +19,11 @@ Usage:
 
 import sys
 import os
+import json
 import subprocess
 import tempfile
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 # ── third-party ───────────────────────────────────────────────────────────────
@@ -405,7 +406,7 @@ def test_ocr_word_count(pdf_path: str, dpi: int = 150) -> TestResult:
         )
 
 
-def test_image_noise(pdf_path: str, dpi: int = 150) -> TestResult:
+def test_image_noise(pdf_path: str, dpi: int = 150, threshold: float = 8.0) -> TestResult:
     """
     The marksheet had noise level 9.63 (threshold < 8).
     Camera-captured documents have more noise than scanner-captured ones.
@@ -422,7 +423,7 @@ def test_image_noise(pdf_path: str, dpi: int = 150) -> TestResult:
             if not files:
                 return TestResult(
                     name="Image Noise Level",
-                    passed=False, value="No image", threshold="< 8.0",
+                    passed=False, value="No image", threshold=f"< {threshold:g}",
                 )
 
             img_gray = np.array(Image.open(
@@ -431,13 +432,13 @@ def test_image_noise(pdf_path: str, dpi: int = 150) -> TestResult:
 
             blur = cv2.GaussianBlur(img_gray.astype(np.float32), (5, 5), 0)
             noise = float(np.sqrt(((img_gray.astype(np.float32) - blur) ** 2).mean()))
-            ok = noise < 8.0
+            ok = noise < threshold
 
             return TestResult(
                 name="Image Noise Level",
                 passed=ok,
                 value=f"{noise:.2f}",
-                threshold="< 8.0",
+                threshold=f"< {threshold:g}",
                 detail=(
                     "Estimated per-pixel noise vs a Gaussian-smoothed reference. "
                     "Camera-scanned documents score higher due to sensor noise, "
@@ -449,11 +450,11 @@ def test_image_noise(pdf_path: str, dpi: int = 150) -> TestResult:
             name="Image Noise Level",
             passed=True,
             value="pdftoppm not available — skipped",
-            threshold="< 8.0",
+            threshold=f"< {threshold:g}",
         )
 
 
-def test_image_sharpness(pdf_path: str, dpi: int = 150) -> TestResult:
+def test_image_sharpness(pdf_path: str, dpi: int = 150, threshold: float = 500.0) -> TestResult:
     """
     Laplacian variance measures focus. The marksheet scored 889 — borderline.
     Set threshold at 500; heavily blurred scans fall below.
@@ -470,7 +471,7 @@ def test_image_sharpness(pdf_path: str, dpi: int = 150) -> TestResult:
             if not files:
                 return TestResult(
                     name="Image Sharpness",
-                    passed=False, value="No image", threshold="> 500",
+                    passed=False, value="No image", threshold=f"> {threshold:g}",
                 )
 
             img_gray = np.array(Image.open(
@@ -478,13 +479,13 @@ def test_image_sharpness(pdf_path: str, dpi: int = 150) -> TestResult:
             ).convert("L"))
 
             lap_var = float(cv2.Laplacian(img_gray, cv2.CV_64F).var())
-            ok = lap_var > 500
+            ok = lap_var > threshold
 
             return TestResult(
                 name="Image Sharpness",
                 passed=ok,
                 value=f"{lap_var:.1f}",
-                threshold="> 500",
+                threshold=f"> {threshold:g}",
                 detail=(
                     "Laplacian variance of the rasterized page. "
                     "Low values indicate camera blur or out-of-focus scanning."
@@ -495,7 +496,7 @@ def test_image_sharpness(pdf_path: str, dpi: int = 150) -> TestResult:
             name="Image Sharpness",
             passed=True,
             value="pdftoppm not available — skipped",
-            threshold="> 500",
+            threshold=f"> {threshold:g}",
         )
 
 
@@ -503,7 +504,13 @@ def test_image_sharpness(pdf_path: str, dpi: int = 150) -> TestResult:
 #  Main runner
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def check_pdf(path: str, verbose: bool = False) -> ReadabilityReport:
+def check_pdf(
+    path: str,
+    verbose: bool = False,
+    dpi: int = 150,
+    noise_threshold: float = 8.0,
+    sharpness_threshold: float = 500.0,
+) -> ReadabilityReport:
     report = ReadabilityReport(pdf_path=path)
 
     # 1. File existence
@@ -542,16 +549,16 @@ def check_pdf(path: str, verbose: bool = False) -> ReadabilityReport:
     report.add(test_pdfplumber_chars(path))
 
     # 8. OCR confidence (most important visual test)
-    report.add(test_ocr_confidence(path))
+    report.add(test_ocr_confidence(path, dpi=dpi))
 
     # 9. OCR word count
-    report.add(test_ocr_word_count(path))
+    report.add(test_ocr_word_count(path, dpi=dpi))
 
     # 10. Image noise
-    report.add(test_image_noise(path))
+    report.add(test_image_noise(path, dpi=dpi, threshold=noise_threshold))
 
     # 11. Image sharpness
-    report.add(test_image_sharpness(path))
+    report.add(test_image_sharpness(path, dpi=dpi, threshold=sharpness_threshold))
 
     doc.close()
     report.summarise()
@@ -599,6 +606,38 @@ def print_report(report: ReadabilityReport, verbose: bool = False):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Structured output
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def report_to_dict(report: ReadabilityReport) -> dict:
+    """Serialize a report to the JSON shape consumed by the backend API.
+
+    The `verdict` / `passed` / `risk` keys drive the API's normalized outcome;
+    `tests` carries every TestResult so UIs can render a real table instead of
+    re-parsing the pretty-printed text report.
+    """
+    if report.overall.startswith("READABLE"):
+        verdict, risk = "readable", "low"
+    elif report.overall.startswith("POOR"):
+        verdict, risk = "poor_readability", "medium"
+    elif report.overall.startswith("UNREADABLE"):
+        verdict, risk = "unreadable", "high"
+    else:
+        verdict, risk = "unknown", "unknown"
+    return {
+        "pdf_path": report.pdf_path,
+        "verdict": verdict,
+        "note": report.overall,
+        "passed": verdict == "readable",
+        "risk": risk,
+        "score": report.score,
+        "tests_passed": sum(1 for t in report.tests if t.passed),
+        "tests_total": len(report.tests),
+        "tests": [asdict(t) for t in report.tests],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Entry point
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -611,9 +650,35 @@ if __name__ == "__main__":
         "--verbose", "-v", action="store_true",
         help="Print threshold details and explanations for each test"
     )
+    parser.add_argument(
+        "--output", metavar="FILE", default=None,
+        help="Also write the report as structured JSON to this path"
+    )
+    parser.add_argument("--dpi", type=int, default=150, help="Render DPI for OCR and image-quality tests. Default: 150")
+    parser.add_argument("--noise-threshold", type=float, default=8.0, help="Maximum passing image-noise score. Default: 8")
+    parser.add_argument("--sharpness-threshold", type=float, default=500.0, help="Minimum passing sharpness score. Default: 500")
     args = parser.parse_args()
 
-    report = check_pdf(args.pdf, verbose=args.verbose)
+    # Windows consoles often default to cp1252, which cannot print the ✅/❌
+    # marks in the report. Re-encode stdout defensively so the pretty printer
+    # never crashes the run.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    report = check_pdf(
+        args.pdf,
+        verbose=args.verbose,
+        dpi=max(96, min(300, args.dpi)),
+        noise_threshold=max(1.0, min(50.0, args.noise_threshold)),
+        sharpness_threshold=max(50.0, min(5000.0, args.sharpness_threshold)),
+    )
+
+    # Write the machine-readable report FIRST: it is the contract consumed by
+    # the backend API; the pretty console print below is cosmetic.
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as handle:
+            json.dump(report_to_dict(report), handle, indent=2, ensure_ascii=False)
+
     print_report(report, verbose=args.verbose)
 
     # Exit code: 0 = readable, 1 = poor/unreadable

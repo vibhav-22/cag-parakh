@@ -1,0 +1,4 @@
+# The integrated extractor works with the backend's existing OpenCV dependency.
+# Install these optional packages for the upstream InsightFace detector:
+insightface>=0.7.3
+onnxruntime>=1.17.0

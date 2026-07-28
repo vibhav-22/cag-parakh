@@ -1,640 +1,637 @@
+#!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════════╗
-║          PDF TAMPER DETECTION TOOL  —  Local Runner          ║
-║                                                              ║
-║  Detects physical + digital tampering in scanned PDFs:       ║
-║    • White correction fluid / pasted paper patches           ║
-║    • Overwritten / altered text                              ║
-║    • Noise inconsistencies from spliced content              ║
-║    • ELA (Error Level Analysis) anomalies                    ║
-║    • Ink/contrast irregularities                             ║
-║    • PDF metadata anomalies                                  ║
-║                                                              ║
-║  USAGE:                                                      ║
-║    # Analyze specific files:                                 ║
-║    python tamper_detect_local.py doc1.pdf doc2.pdf           ║
-║                                                              ║
-║    # Analyze all PDFs in a folder:                           ║
-║    python tamper_detect_local.py --folder /path/to/folder    ║
-║                                                              ║
-║    # Custom output directory:                                ║
-║    python tamper_detect_local.py doc.pdf --output ./reports  ║
-║                                                              ║
-║  INSTALL DEPENDENCIES:                                       ║
-║    pip install pymupdf opencv-python Pillow numpy matplotlib ║
-╚══════════════════════════════════════════════════════════════╝
+whitener_detect.py - correction-fluid ("white-out") detector for scanned PDFs.
+
+Deterministic image forensics, no ML. Correction fluid on a physical page has a
+distinct optical signature once scanned, and every cue below is measured
+*locally* against the region's own surrounding paper so scanner illumination
+gradients don't fool it:
+
+  B  brightness   fluid reflects more light than paper -> a few DN brighter
+  T  texture      the fluid coat suppresses paper-fiber grain / scanner noise
+  C  color        paper scans warm (yellowish); fluid is neutral/bluish white
+  E  edge         a fluid patch has a physical step boundary (glare fades)
+  X  context      people white out written content, so patches sit in text
+  S  shape        daubs are solid blobs, not thin snakes or rings
+
+Each candidate region gets a weighted blend of those cues squashed through a
+logistic into a confidence in [0, 1]; a page's probability is the soft-OR of
+its regions; the document's probability is the soft-OR of its pages.
+
+Usage:
+  python whitener_detect.py scan.pdf
+  python whitener_detect.py a.pdf b.pdf --dpi 250 --out results --json
+  python whitener_detect.py scan.pdf --fail-over 0.5   # exit 3 if score >= 0.5
+
+Outputs per input file (in <out>/<stem>/):
+  report.json               scores, boxes (pixel + PDF-point coords), features
+  page_NNN_annotated.png    flagged pages with boxes drawn
+  <stem>_annotated.pdf      the whole document rebuilt with boxes drawn
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import os
+import math
 import sys
-import glob
-import tempfile
-import traceback
-from datetime import datetime
+from pathlib import Path
 
-import fitz                          # PyMuPDF  →  pip install pymupdf
-import cv2                           # OpenCV   →  pip install opencv-python
+import cv2
 import numpy as np
-from PIL import Image, ImageChops, ImageEnhance
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.gridspec import GridSpec
 
-# ─────────────────────────────────────────────────────────────
-# TUNEABLE PARAMETERS  (adjust if you get too many false flags)
-# ─────────────────────────────────────────────────────────────
-RENDER_DPI     = 300   # Resolution for rendering PDF pages (higher = slower but more detail)
-ELA_QUALITY    = 75    # JPEG quality used in ELA re-save (lower = more sensitive)
-ELA_AMPLIFY    = 12    # Brightness multiplier for ELA difference image
-WHITE_THRESH   = 230   # Pixel brightness (0-255) above which a pixel is "suspiciously white"
-MIN_PATCH_AREA = 800   # Minimum pixel area to count a white blob as a "patch"
-NOISE_KERNEL   = 5     # Gaussian blur kernel size for noise extraction
+try:
+    import fitz  # PyMuPDF
+except ImportError:  # pragma: no cover
+    fitz = None
 
+VERSION = "1.1.0"
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
-# ─────────────────────────────────────────────────────────────
-# CORE ANALYSIS FUNCTIONS
-# ─────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------- tunables --
+# Candidate gates (region must be brighter than its local background).
+Z_DETAIL_GATE = 2.2        # z-score vs. local (median-flattened) background
+ABS_DELTA_GATE = 1.6       # and an absolute floor in gray DN
+Z_RAW_GATE = 3.0           # fallback gate for patches too big for flattening
+ABS_RAW_GATE = 2.5
 
-def pdf_to_image(pdf_path: str, dpi: int = RENDER_DPI) -> np.ndarray:
-    """Render the first page of a PDF to a BGR numpy array."""
-    doc = fitz.open(pdf_path)
-    page = doc[0]
-    mat = fitz.Matrix(dpi / 72, dpi / 72)
-    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
-    img_bytes = pix.tobytes("png")
-    arr = np.frombuffer(img_bytes, dtype=np.uint8)
-    img_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    doc.close()
-    return img_bgr
+# Core cue weights (sum to 1). Texture/color are corroboration-only bonuses:
+# real daubs are usually written over again (texture restored) and fluid tint
+# varies by brand, so their absence must not drag the score down.
+W_BRIGHT, W_EDGE, W_TEXT, W_SHAPE = .42, .20, .22, .16
+W_SMOOTH_BONUS, W_BLUE_BONUS = .10, .08
+SIGMOID_CENTER, SIGMOID_STEEP = 0.52, 8.5
+
+CONF_REPORT = 0.15         # regions below this are dropped from the report
+CONF_PAGE = 0.25           # regions below this don't count toward page score
+MAX_REGIONS = 12
+CLIPPED_PAPER_LUM = 251.0  # above this the brightness cue has no headroom
 
 
-def get_pdf_metadata(pdf_path: str) -> dict:
-    """Extract PDF metadata dictionary."""
-    doc = fitz.open(pdf_path)
-    meta = doc.metadata
-    doc.close()
-    return meta
+def odd(n: float) -> int:
+    n = int(round(n))
+    return n if n % 2 == 1 else n + 1
 
 
-def ela_analysis(img_bgr: np.ndarray,
-                 quality: int = ELA_QUALITY,
-                 amplify: float = ELA_AMPLIFY) -> np.ndarray:
-    """
-    Error Level Analysis (ELA).
-
-    Re-saves the image at a known JPEG quality, then computes the
-    per-pixel difference with the original. Regions that were edited
-    and re-saved at a *different* quality will show higher error levels
-    (appear brighter in the output heatmap).
-    """
-    pil_img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-        tmp = temp_file.name
-    try:
-        pil_img.save(tmp, "JPEG", quality=quality)
-        with Image.open(tmp) as reloaded_file:
-            reloaded = reloaded_file.convert("RGB").copy()
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-
-    diff = ImageChops.difference(pil_img, reloaded)
-    r, g, b = diff.split()
-    r = ImageEnhance.Brightness(r).enhance(amplify)
-    g = ImageEnhance.Brightness(g).enhance(amplify)
-    b = ImageEnhance.Brightness(b).enhance(amplify)
-    ela_img = Image.merge("RGB", (r, g, b))
-    return np.array(ela_img)
+def clip01(x: float) -> float:
+    return max(0.0, min(1.0, x))
 
 
-def detect_white_patches(img_bgr: np.ndarray,
-                         thresh: int = WHITE_THRESH,
-                         min_area: int = MIN_PATCH_AREA) -> tuple:
-    """
-    Detect abnormally bright/white rectangular blobs.
-
-    Correction fluid and pasted paper create suspiciously uniform
-    pure-white areas that stand out against the natural grey-toned
-    background of a real scanned document.
-
-    Returns:
-        white_mask  — binary mask of bright pixels
-        patches     — list of dicts with bbox, area, aspect_ratio
-    """
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    _, white_mask = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
-
-    # Morphological closing merges nearby bright spots into single blobs
-    kernel = np.ones((15, 15), np.uint8)
-    closed = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
-
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    patches = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area > min_area:
-            x, y, w, h = cv2.boundingRect(cnt)
-            aspect = w / max(h, 1)
-            if 0.3 < aspect < 15:   # filter out very thin lines / blobs
-                patches.append({
-                    "bbox": (x, y, w, h),
-                    "area": int(area),
-                    "aspect_ratio": round(aspect, 2)
-                })
-    return white_mask, patches
+def robust_sigma(values: np.ndarray, floor: float) -> float:
+    med = float(np.median(values))
+    mad = float(np.median(np.abs(values - med)))
+    return max(1.4826 * mad, floor)
 
 
-def noise_analysis(img_bgr: np.ndarray, kernel: int = NOISE_KERNEL) -> np.ndarray:
-    """
-    Extract the noise layer by subtracting a blurred version.
-
-    A genuine scan has consistent low-level noise everywhere.
-    Pasted paper / correction fluid = suspiciously ZERO noise.
-    Content spliced from a different scan = unusually HIGH noise.
-    """
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    blurred = cv2.GaussianBlur(gray, (kernel, kernel), 0)
-    noise = np.abs(gray - blurred)
-    noise_norm = cv2.normalize(noise, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return noise_norm
+def dil(mask: np.ndarray, k: int, iterations: int = 1) -> np.ndarray:
+    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    return cv2.dilate(mask.astype(np.uint8), kern, iterations=iterations) > 0
 
 
-def detect_noise_anomalies(noise_map: np.ndarray) -> tuple:
-    """
-    Divide the noise map into a 10×10 grid and flag cells whose mean
-    noise deviates significantly from the document average.
+def ero(mask: np.ndarray, k: int) -> np.ndarray:
+    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    return cv2.erode(mask.astype(np.uint8), kern) > 0
 
-    Returns:
-        anomalies    — list of dicts describing each flagged cell
-        overall_mean — baseline noise mean across the document
-        overall_std  — baseline noise std across the document
-    """
-    h, w = noise_map.shape
-    cell_h, cell_w = h // 10, w // 10
-    cell_stats = []
 
-    for row in range(10):
-        for col in range(10):
-            y1, y2 = row * cell_h, (row + 1) * cell_h
-            x1, x2 = col * cell_w, (col + 1) * cell_w
-            cell = noise_map[y1:y2, x1:x2]
-            cell_stats.append(float(np.mean(cell)))
+def local_std(gray: np.ndarray, k: int) -> np.ndarray:
+    mean = cv2.boxFilter(gray, cv2.CV_32F, (k, k))
+    mean2 = cv2.boxFilter(gray * gray, cv2.CV_32F, (k, k))
+    return np.sqrt(np.maximum(mean2 - mean * mean, 0.0))
 
-    overall_mean = float(np.mean(cell_stats))
-    overall_std  = float(np.std(cell_stats))
 
-    anomalies = []
-    for i, stat in enumerate(cell_stats):
-        row, col = i // 10, i % 10
-        if stat < overall_mean - 1.5 * overall_std:
-            anomalies.append({
-                "type": "LOW_NOISE",
-                "reason": "Suspiciously clean — possible correction fluid or pasted paper",
-                "grid_pos": (row, col),
-                "noise_level": round(stat, 2),
-                "expected": round(overall_mean, 2)
+# ------------------------------------------------------------ page analysis --
+def analyze_page(rgb: np.ndarray, dpi: int) -> dict:
+    """Analyze one rendered page (RGB uint8). Returns a page-result dict."""
+    h, w = rgb.shape[:2]
+    warnings: list[str] = []
+    gray_u8 = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    gray = gray_u8.astype(np.float32)
+
+    # Bitonal / posterized scans carry no brightness or texture signal at all.
+    if np.unique(gray_u8[::4, ::4]).size <= 10:
+        return {
+            "probability": 0.0, "indeterminate": True, "regions": [],
+            "warnings": ["bitonal/binarized page - whitener cues are not "
+                         "measurable in a 1-bit scan"],
+            "paper": {}, "size_px": [w, h],
+        }
+
+    # --- paper model (robust: patches are a small minority of pixels) ------
+    med = float(np.median(gray))
+    if med < 100:
+        warnings.append("dark page background - detector assumes white paper")
+    paperish = np.abs(gray - med) <= 25
+    paper_lum = float(np.median(gray[paperish]))
+    sigma = robust_sigma(gray[paperish], 0.6)
+
+    # 6-sigma is right for clean scans, but on noisy/gradient captures sigma
+    # reflects illumination structure - uncapped it would miss all but the
+    # blackest ink (and re-written strokes on daubs must count as ink).
+    ink = gray < (paper_lum - min(max(35.0, 6.0 * sigma), 60.0))
+    ink_d3 = dil(ink, 3)
+
+    # "Writing" = dark pixels that could be written content. Page-border bands
+    # (scan shadows, bed edges) and big solid dark blobs (photos, stamps) are
+    # ink-dark but not writing; text context and fragment bridging must key
+    # off real strokes or bright paper next to a scan band scores as "text".
+    n_ink, ink_lab, ink_stats, _ = cv2.connectedComponentsWithStats(
+        ink.astype(np.uint8) * 255, 8, cv2.CV_32S)
+    eb_ink = max(2, int(round(0.01 * min(h, w))))
+    max_stroke_area = int((dpi * 0.55) ** 2)  # ~1.4 cm2 of solid dark != strokes
+    drop_ink = np.zeros(max(n_ink, 1), bool)
+    for ii in range(1, n_ink):
+        ix, iy, iw, ih = (int(ink_stats[ii, s]) for s in
+                          (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP,
+                           cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT))
+        ia = int(ink_stats[ii, cv2.CC_STAT_AREA])
+        drop_ink[ii] = (ix <= eb_ink or iy <= eb_ink or ix + iw >= w - eb_ink
+                        or iy + ih >= h - eb_ink or ia > max_stroke_area)
+    writing = ink & ~drop_ink[ink_lab]
+
+    k_grain = odd(max(5, dpi / 40))
+    ink_far = dil(ink, k_grain + 2)
+    paper_zone = paperish & ~ink_far
+    if not paper_zone.any():
+        paper_zone = paperish
+
+    # --- illumination-flattened brightness map ------------------------------
+    g_s = cv2.GaussianBlur(gray, (0, 0), 2.0)
+    k_bg = odd(min(max(0.7 * dpi, 61), 199))
+    bg = cv2.medianBlur(np.clip(g_s, 0, 255).astype(np.uint8), k_bg).astype(np.float32)
+    detail = g_s - bg
+    d_med = float(np.median(detail[paper_zone]))
+    d_sig = robust_sigma(detail[paper_zone], 0.35)
+
+    gs_med = float(np.median(g_s[paper_zone]))
+    gs_sig = robust_sigma(g_s[paper_zone], 0.45)
+
+    # --- texture (grain) model ----------------------------------------------
+    grain = local_std(gray, k_grain)
+    paper_grain = float(np.median(grain[paper_zone]))
+    grain_ok = paper_grain >= 0.7
+    if not grain_ok:
+        warnings.append("paper grain too low (heavy compression or synthetic "
+                        "render) - texture cue disabled")
+
+    # --- color model (LAB b* = yellow-blue axis; needs the uint8 path) ------
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+    a_f = lab[..., 1].astype(np.float32)
+    b_f = lab[..., 2].astype(np.float32)
+    chroma = float(np.median(np.abs(a_f[paperish] - 128))
+                   + np.median(np.abs(b_f[paperish] - 128)))
+    color_ok = chroma >= 1.5
+    b_s = cv2.GaussianBlur(b_f, (0, 0), 2.0)
+    paper_b = float(np.median(b_s[paper_zone]))
+
+    clipped = paper_lum >= CLIPPED_PAPER_LUM
+    if clipped:
+        warnings.append("paper is near white-point clipping - brightness cue "
+                        "compressed; confidence capped at 0.60")
+
+    # --- candidate mask ------------------------------------------------------
+    # Gate thresholds are capped in absolute DN: on photocopies/photos the
+    # robust sigma measures illumination structure, and an uncapped z-gate
+    # can exceed the 255 ceiling entirely. Real fluid sits tens of DN above
+    # paper; candidates just need to reach the scorer, which is the FP gate.
+    det_thr = max(ABS_DELTA_GATE, min(Z_DETAIL_GATE * d_sig, 12.0))
+    raw_thr = max(ABS_RAW_GATE, min(Z_RAW_GATE * gs_sig, 18.0))
+    cand = (detail >= d_med + det_thr) | (g_s >= gs_med + raw_thr)
+    # Second physical mode: copier-flattened fluid. A photocopy/rescan of a
+    # whitened original renders the daub as a mottled gray blotch, not a
+    # bright patch - the signature is grain far above the page baseline in a
+    # bright-ish blob (dark high-grain areas are photos/stamps/dense print).
+    if grain_ok:
+        cand |= ((grain >= max(3.0, 3.0 * paper_grain))
+                 & (gray > paper_lum - 45.0) & ~ink_far)
+    cand &= ~ink_d3  # also drops JPEG ringing halos hugging strokes
+
+    k_close = odd(2 * max(2, dpi // 100) + 1)
+    k_open = odd(2 * max(2, dpi // 130) + 1)
+    cand_u8 = (cand.astype(np.uint8)) * 255
+    cand_u8 = cv2.morphologyEx(cand_u8, cv2.MORPH_CLOSE,
+                               cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_close, k_close)))
+    cand_u8 = cv2.morphologyEx(cand_u8, cv2.MORPH_OPEN,
+                               cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open)))
+
+    # Sobel magnitude for the edge-sharpness cue (computed once per page).
+    gx = cv2.Sobel(g_s, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g_s, cv2.CV_32F, 0, 1, ksize=3)
+    grad = cv2.magnitude(gx, gy)
+
+    text_zone = dil(writing, odd(dpi * 0.14))  # ~3.5 mm reach around writing
+
+    # Group fragments before scoring: a daub with re-written ink on top breaks
+    # into several bright shards; merged, they score as the one patch they are
+    # (and the ring then samples true paper instead of sibling fragments).
+    # Fragments may only merge ACROSS INK - ink is what split them. Merging
+    # across plain paper would chain unrelated illumination speckle into
+    # page-scale mega-groups on gradient-heavy photocopies.
+    k_grp = odd(dpi * 0.06)
+    kern_grp = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_grp, k_grp))
+    closed = cv2.morphologyEx(cand_u8, cv2.MORPH_CLOSE, kern_grp) > 0
+    cand_bool = cand_u8 > 0
+    grouped = ((closed & (cand_bool | writing)).astype(np.uint8)) * 255
+    n_lab, labels, stats, _ = cv2.connectedComponentsWithStats(grouped, 8, cv2.CV_32S)
+
+    # A correction-fluid applicator physically can't mark thinner than ~2 mm;
+    # anything narrower is watermark/security-pattern glint or JPEG shard.
+    min_area = max(120, int(round((dpi / 25.4 * 3.0) ** 2)))  # ~3x3 mm
+    min_side = max(6, int(round(dpi / 25.4 * 2.2)))           # ~2.2 mm
+    border_band = max(3, int(round(0.015 * min(h, w))))
+    r_ring = max(8, int(round(dpi * 0.08)))                   # ~2 mm ring gap->4 mm reach
+
+    order = sorted(range(1, n_lab), key=lambda i: -stats[i, cv2.CC_STAT_AREA])[:40]
+    regions = []
+    for i in order:
+        gx, gy, gw, gh = (int(stats[i, s]) for s in
+                          (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP,
+                           cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT))
+        sub = (labels[gy:gy + gh, gx:gx + gw] == i) & cand_bool[gy:gy + gh, gx:gx + gw]
+        area = int(sub.sum())
+        if area < min_area:
+            continue
+        ys, xs = np.nonzero(sub)
+        x, y = gx + int(xs.min()), gy + int(ys.min())
+        bw, bh = int(xs.max()) - int(xs.min()) + 1, int(ys.max()) - int(ys.min()) + 1
+        area_frac = area / float(h * w)
+        if min(bw, bh) < min_side:
+            continue
+        if bw > 0.85 * w and bh > 0.85 * h:
+            continue  # page-frame surround (scan bed / digital canvas), not a patch
+        if area_frac > 0.35 or bw * bh > 0.5 * h * w:
+            warnings.append("very large bright area skipped (likely exposure, "
+                            "not correction fluid)")
+            continue
+
+        # Scanner-bed margins: skip blobs that mostly live in the outer frame.
+        comp_full = np.zeros((h, w), bool)
+        comp_full[gy:gy + gh, gx:gx + gw] = sub
+        in_band = comp_full.copy()
+        in_band[border_band:h - border_band, border_band:w - border_band] = False
+        if in_band.sum() >= 0.25 * area:
+            continue
+
+        # Work on a padded crop for all per-region morphology.
+        pad = 2 * r_ring + 8
+        cx0, cy0 = max(0, x - pad), max(0, y - pad)
+        cx1, cy1 = min(w, x + bw + pad), min(h, y + bh + pad)
+        m = comp_full[cy0:cy1, cx0:cx1]
+        ink_c = ink_d3[cy0:cy1, cx0:cx1]
+        gray_c = gray[cy0:cy1, cx0:cx1]
+        grain_c = grain[cy0:cy1, cx0:cx1]
+        b_c = b_s[cy0:cy1, cx0:cx1]
+        grad_c = grad[cy0:cy1, cx0:cx1]
+
+        interior = ero(m, 5) & ~ink_c
+        if interior.sum() < 30:
+            interior = m & ~ink_c
+        if interior.sum() < 30:
+            interior = m
+
+        ring = dil(m, 2 * r_ring + 1) & ~dil(m, 9) & ~ink_c
+        if ring.sum() < 150:
+            ring = dil(m, 4 * r_ring + 1) & ~dil(m, 9) & ~ink_c
+        use_global = ring.sum() < 150
+
+        if use_global:
+            local_paper = paper_lum
+            local_sig = max(sigma, 0.8)
+            ring_grain = paper_grain
+            ring_b = paper_b
+        else:
+            # 65th percentile, not median: faint print below the ink threshold
+            # pollutes the ring and would drag a median down, manufacturing
+            # "brighter than ring" deltas for plain cells in printed tables.
+            local_paper = float(np.percentile(gray_c[ring], 65))
+            local_sig = robust_sigma(gray_c[ring], 0.8)
+            ring_grain = float(np.median(grain_c[ring]))
+            ring_b = float(np.median(b_c[ring]))
+
+        # --- cues ---
+        # Every cue is the WEAKER of local-ring vs. global-paper evidence.
+        # Local-only gets fooled by unprinted paper inside tinted/halftone
+        # areas (white form fields beat their gray surroundings but only tie
+        # the page's actual paper); real correction fluid beats the paper too.
+        def bright_evidence(delta_dn: float, sig: float) -> float:
+            z_term = clip01((delta_dn / max(sig, 0.8) - 1.2) / 5.0)
+            # Escape hatch: tens of DN above paper is decisive even when the
+            # page sigma is inflated by illumination structure (photocopies).
+            abs_term = clip01((delta_dn - 8.0) / 22.0)
+            return max(z_term, abs_term) * clip01((delta_dn - 1.2) / 2.5)
+
+        med_in = float(np.median(gray_c[interior]))
+        delta = med_in - local_paper
+        bright_z = delta / local_sig
+        f_bright = min(bright_evidence(delta, local_sig),
+                       bright_evidence(med_in - paper_lum, sigma))
+
+        grain_in = float(np.median(grain_c[interior]))
+        if grain_ok:
+            supp = min(1.0 - grain_in / max(ring_grain, 0.3),
+                       1.0 - grain_in / max(paper_grain, 0.3))
+            f_smooth = clip01(supp / 0.55)
+        else:
+            supp, f_smooth = None, None
+
+        if color_ok:
+            b_in = float(np.median(b_c[interior]))
+            db = min(ring_b - b_in, paper_b - b_in)
+            f_blue = clip01(db / 4.5)
+        else:
+            db, f_blue = None, None
+
+        # Text context: either the patch borders surviving ink, or its rows
+        # carry ink elsewhere on the page (a daub mid-line covers the ink
+        # beneath it, so plain proximity alone misses the classic case).
+        tp_zone = float(text_zone[comp_full].mean())
+        row_ink = writing[y:y + bh, :].sum(axis=1).astype(np.float32)
+        tp_rows = float(np.mean(row_ink > 0.002 * w))
+        tp = max(tp_zone, tp_rows)
+        f_text = clip01((tp - 0.05) / 0.55)
+
+        f_shape = clip01((area / float(bw * bh) - 0.25) / 0.45)
+
+        boundary = dil(m, 5) & ~ero(m, 5)
+        edge_z = float(np.median(grad_c[boundary])) / max(local_sig, 0.8) if boundary.any() else 0.0
+        f_edge = clip01((edge_z - 0.7) / 2.0)
+
+        # Mottle (copier-flattened fluid) can stand in for brightness, but only
+        # with a paper-level ring (a dark ring means we're inside a photo or
+        # print block), writing context, and a region that is still at least
+        # as bright as its ring - highlighter, show-through ghosting and
+        # handwriting-band texture are all mottled but NET DARKER than their
+        # surroundings, while a flattened daub never is.
+        # The delta ramp encodes that flattened fluid still reflects well above
+        # its ring (+9..+28 on real daubs); handwriting-band texture, ghosting
+        # and photocopier toner streak sit within ~0..+8 of ring level and
+        # must score ~nothing.
+        f_mottle = 0.0
+        if grain_ok and local_paper > paper_lum - 50.0 and f_text >= 0.15:
+            f_mottle = (clip01((grain_in / max(paper_grain, 0.5) - 2.0) / 3.5)
+                        * clip01((delta - 2.0) / 10.0))
+        f_primary = max(f_bright, f_mottle)
+
+        raw = (W_BRIGHT * f_primary + W_EDGE * f_edge
+               + W_TEXT * f_text + W_SHAPE * f_shape)
+        raw = min(1.0, raw + W_SMOOTH_BONUS * (f_smooth or 0.0)
+                  + W_BLUE_BONUS * (f_blue or 0.0))
+        conf = 1.0 / (1.0 + math.exp(-SIGMOID_STEEP * (raw - SIGMOID_CENTER)))
+
+        # Brightness or mottle is the defining cue: without either the region
+        # is not distinguishable from plain paper, whatever the rest says.
+        conf *= 0.25 + 0.75 * clip01(f_primary / 0.30)
+        # Whitener exists to alter written content: a candidate with no
+        # writing near it or anywhere in its rows is background structure.
+        if f_text < 0.15:
+            conf *= 0.4
+        # Thin vertical slivers are page-edge gaps / fold highlights; fluid
+        # daubs over (horizontal) text are never tall-and-narrow.
+        if bh > 3 * bw and bw < dpi * 0.16:
+            conf *= 0.35
+        # Bright blob at the page's extreme edge with no ink NEARBY: backing
+        # sheet / scanner bed showing past the document, not correction fluid.
+        # (Uses ink proximity, not row coverage - a border-hugging frame region
+        # spans every text row without being anywhere near the writing.)
+        eb = max(2, int(round(0.01 * min(h, w))))
+        if (x <= eb or y <= eb or x + bw >= w - eb or y + bh >= h - eb) \
+                and tp_zone < 0.3:
+            conf *= 0.35
+        if area_frac > 0.10:
+            conf *= 0.6
+        elif area_frac > 0.04:
+            conf *= 0.85
+        if clipped:
+            conf = min(conf, 0.60)
+        conf = min(conf, 0.97)
+
+        if conf >= CONF_REPORT:
+            regions.append({
+                "confidence": round(conf, 3),
+                "bbox_px": [x, y, x + bw, y + bh],
+                "features": {
+                    "mode": "mottle" if f_mottle > f_bright else "bright",
+                    "brightness_z": round(bright_z, 2),
+                    "delta_dn": round(delta, 2),
+                    "delta_vs_paper_dn": round(med_in - paper_lum, 2),
+                    "grain_ratio": round(grain_in / max(paper_grain, 0.5), 2)
+                    if grain_ok else None,
+                    "grain_suppression": round(supp, 3) if supp is not None else None,
+                    "blue_shift": round(db, 2) if db is not None else None,
+                    "text_context": round(tp, 3),
+                    "extent": round(area / float(bw * bh), 3),
+                    "edge_z": round(edge_z, 2),
+                },
             })
-        elif stat > overall_mean + 2.0 * overall_std:
-            anomalies.append({
-                "type": "HIGH_NOISE",
-                "reason": "Unusually noisy — content possibly from a different scan/source",
-                "grid_pos": (row, col),
-                "noise_level": round(stat, 2),
-                "expected": round(overall_mean, 2)
-            })
-    return anomalies, overall_mean, overall_std
 
+    regions.sort(key=lambda r: -r["confidence"])
+    regions = regions[:MAX_REGIONS]
 
-def detect_ink_inconsistency(img_bgr: np.ndarray) -> np.ndarray:
-    """
-    Map local contrast variance across the image.
+    # Soft-OR with rank decay: the strongest regions drive the page score; a
+    # pile of mediocre regions must not compound into near-certainty.
+    prob = 1.0
+    for rank, r in enumerate(rr for rr in regions if rr["confidence"] >= CONF_PAGE):
+        prob *= (1.0 - r["confidence"] * (0.7 ** rank))
+    prob = min(1.0 - prob, 0.98)  # a heuristic never gets to claim certainty
 
-    Overwritten text or content written with a different pen shows up
-    as patches of anomalously high or low local contrast compared to
-    the surrounding genuine content.
-    """
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    kernel_size = 31
-    gray_f = gray.astype(np.float32)
-    mean    = cv2.blur(gray_f, (kernel_size, kernel_size))
-    mean_sq = cv2.blur(gray_f ** 2, (kernel_size, kernel_size))
-    local_std = np.sqrt(np.maximum(mean_sq - mean ** 2, 0))
-    local_std_norm = cv2.normalize(local_std, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return local_std_norm
-
-
-def compute_ela_score(ela_img: np.ndarray) -> dict:
-    """Summarise ELA output into scalar metrics."""
     return {
-        "mean":               round(float(np.mean(ela_img)), 2),
-        "max":                round(float(np.max(ela_img)), 2),
-        "std":                round(float(np.std(ela_img)), 2),
-        "high_ela_pixel_pct": round(float(np.sum(ela_img > 80) / ela_img.size * 100), 2)
+        "probability": round(prob, 3),
+        "indeterminate": False,
+        "regions": regions,
+        "warnings": sorted(set(warnings)),
+        "paper": {
+            "luminance": round(paper_lum, 1), "sigma": round(sigma, 2),
+            "grain": round(paper_grain, 2), "color_scan": bool(color_ok),
+        },
+        "size_px": [w, h],
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# SCORING ENGINE
-# ─────────────────────────────────────────────────────────────
-
-def compute_tamper_score(white_patches: list,
-                         noise_anomalies: list,
-                         ela_scores: dict,
-                         metadata: dict) -> tuple:
-    """
-    Combine all signals into a single tamper likelihood score (0–100).
-
-    Scoring weights:
-        White patches (physical)  → up to 35 pts
-        Low-noise regions         → up to 25 pts
-        High-noise regions        → up to 15 pts
-        ELA anomaly               → up to 20 pts
-        Metadata editor hint      →  5 pts
-    """
-    score = 0
-    reasons = []
-
-    # ── White patches ──────────────────────────────────────────
-    n_patches = len(white_patches)
-    if n_patches >= 3:
-        score += 35
-        reasons.append(f"[HIGH] {n_patches} suspicious white patch(es) — correction fluid / pasted paper")
-    elif n_patches >= 1:
-        score += 20
-        reasons.append(f"[MED]  {n_patches} white patch(es) — possible correction fluid")
-
-    # ── Noise anomalies ────────────────────────────────────────
-    low_noise  = [a for a in noise_anomalies if a["type"] == "LOW_NOISE"]
-    high_noise = [a for a in noise_anomalies if a["type"] == "HIGH_NOISE"]
-
-    if len(low_noise) >= 3:
-        score += 25
-        reasons.append(f"[HIGH] {len(low_noise)} suspiciously clean region(s) — pasted paper or white-out")
-    elif len(low_noise) >= 1:
-        score += 12
-        reasons.append(f"[MED]  {len(low_noise)} low-noise region(s) — possible physical alteration")
-
-    if len(high_noise) >= 2:
-        score += 15
-        reasons.append(f"[MED]  {len(high_noise)} high-noise region(s) — content from a different source")
-    elif len(high_noise) == 1:
-        score += 7
-        reasons.append(f"[MED]  1 high-noise region — minor noise inconsistency")
-
-    # ── ELA ────────────────────────────────────────────────────
-    ela_pct = ela_scores["high_ela_pixel_pct"]
-    if ela_pct > 15:
-        score += 20
-        reasons.append(f"[HIGH] ELA: {ela_pct}% of pixels show compression editing artifacts")
-    elif ela_pct > 8:
-        score += 10
-        reasons.append(f"[MED]  ELA: {ela_pct}% of pixels flagged — moderate anomaly")
-
-    # ── Metadata ───────────────────────────────────────────────
-    creator  = (metadata.get("creator")  or "").lower()
-    producer = (metadata.get("producer") or "").lower()
-    editors  = ["photoshop", "gimp", "paint", "illustrator", "acrobat", "inkscape"]
-    matched  = [e for e in editors if e in creator + producer]
-    if matched:
-        score += 5
-        reasons.append(f"[MED]  Metadata: image editor detected ({', '.join(matched)})")
-
-    score = min(score, 100)
-
-    if score >= 60:
-        verdict = "HIGH LIKELIHOOD OF TAMPERING"
-    elif score >= 30:
-        verdict = "MODERATE SUSPICION — Further investigation recommended"
-    else:
-        verdict = "LOW SUSPICION — No strong tampering signals detected"
-
-    return score, verdict, reasons
-
-
-# ─────────────────────────────────────────────────────────────
-# REPORT GENERATOR  (per-document)
-# ─────────────────────────────────────────────────────────────
-
-def generate_report(pdf_path: str, output_dir: str) -> tuple:
-    """Run all analyses on one PDF and save a visual report PNG."""
-    name = os.path.splitext(os.path.basename(pdf_path))[0]
-    sep  = "=" * 60
-    print(f"\n{sep}\n  Analyzing: {name}\n{sep}")
-
-    # ── Load & render ──────────────────────────────────────────
-    img_bgr  = pdf_to_image(pdf_path)
-    img_rgb  = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    metadata = get_pdf_metadata(pdf_path)
-
-    # ── Run analyses ───────────────────────────────────────────
-    ela_img                       = ela_analysis(img_bgr)
-    white_mask, white_patches     = detect_white_patches(img_bgr)
-    noise_map                     = noise_analysis(img_bgr)
-    noise_anom, noise_mean, _     = detect_noise_anomalies(noise_map)
-    ink_map                       = detect_ink_inconsistency(img_bgr)
-    ela_scores                    = compute_ela_score(ela_img)
-
-    score, verdict, reasons = compute_tamper_score(
-        white_patches, noise_anom, ela_scores, metadata
-    )
-
-    print(f"  Score  : {score}/100")
-    print(f"  Verdict: {verdict}")
-    for r in reasons:
-        print(f"    • {r}")
-
-    # ── Annotated original (red boxes around patches) ──────────
-    annotated = img_rgb.copy()
-    for p in white_patches:
-        x, y, w, h = p["bbox"]
-        cv2.rectangle(annotated, (x, y), (x + w, y + h), (220, 30, 30), 6)
-        cv2.putText(annotated, "PATCH", (x, max(y - 12, 20)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (220, 30, 30), 3)
-
-    # ── Score colour ───────────────────────────────────────────
-    score_color = "#e03030" if score >= 60 else "#e09030" if score >= 30 else "#30b860"
-
-    # ── Build 2×3 visual report ────────────────────────────────
-    fig = plt.figure(figsize=(22, 16), facecolor="#0f0f0f")
-    fig.suptitle(
-        f"TAMPER ANALYSIS REPORT — {name.upper()}\n"
-        f"Score: {score}/100   |   {verdict}",
-        color=score_color, fontsize=15, fontweight="bold", y=0.98
-    )
-
-    gs = GridSpec(2, 3, figure=fig, hspace=0.35, wspace=0.25)
-
-    panels = [
-        (gs[0, 0], img_rgb,   "Original Document",          None),
-        (gs[0, 1], annotated, "White Patch Detection",      None),
-        (gs[0, 2], ela_img,   "ELA — Error Level Analysis", "hot"),
-        (gs[1, 0], noise_map, "Noise Map",                  "viridis"),
-        (gs[1, 1], ink_map,   "Ink Inconsistency Map",      "plasma"),
-        (gs[1, 2], None,      "Findings Summary",            None),
-    ]
-
-    for spec, data, title, cmap in panels:
-        ax = fig.add_subplot(spec)
-        ax.set_facecolor("#1a1a1a")
-        ax.set_title(title, color="#00d4ff", fontsize=11, pad=6, fontweight="bold")
-        ax.axis("off")
-        if data is not None:
-            ax.imshow(data, cmap=cmap, aspect="auto")
-
-    # ── Findings text panel ────────────────────────────────────
-    ax_t = fig.add_subplot(gs[1, 2])
-    ax_t.set_facecolor("#111111")
-    ax_t.axis("off")
-    ax_t.set_title("Findings Summary", color="#00d4ff", fontsize=11, pad=6, fontweight="bold")
-
-    lines = [
-        f"FILE    : {name}",
-        f"SCORE   : {score}/100",
-        f"VERDICT : {verdict}",
-        "",
-        "─── FINDINGS ───────────────────────",
-        *[f"  {r}" for r in reasons],
-        "",
-        "─── DETECTION STATS ────────────────",
-        f"  White patches     : {len(white_patches)}",
-        f"  Noise anomalies   : {len(noise_anom)}",
-        f"    Low-noise cells : {sum(1 for a in noise_anom if a['type']=='LOW_NOISE')}",
-        f"    High-noise cells: {sum(1 for a in noise_anom if a['type']=='HIGH_NOISE')}",
-        f"  ELA flagged pixels: {ela_scores['high_ela_pixel_pct']}%",
-        f"  ELA mean level    : {ela_scores['mean']}",
-        "",
-        "─── PDF METADATA ───────────────────",
-        f"  Creator : {metadata.get('creator')  or 'N/A'}",
-        f"  Producer: {metadata.get('producer') or 'N/A'}",
-        f"  Created : {metadata.get('creationDate') or 'N/A'}",
-        f"  Modified: {metadata.get('modDate')      or 'N/A'}",
-    ]
-
-    ax_t.text(0.04, 0.97, "\n".join(lines),
-              transform=ax_t.transAxes, va="top", ha="left",
-              fontsize=8.2, color="white", fontfamily="monospace",
-              linespacing=1.5)
-
-    out_path = os.path.join(output_dir, f"{name}_tamper_report.png")
-    plt.savefig(out_path, dpi=120, bbox_inches="tight",
-                facecolor="#0f0f0f", edgecolor="none")
-    plt.close()
-    print(f"  Report → {out_path}")
-
-    height, width = img_bgr.shape[:2]
-    risk = "high" if score >= 60 else "medium" if score >= 30 else "low"
-    regions = []
-    for patch in white_patches:
-        x, y, w, h = patch["bbox"]
-        regions.append({
-            "page": 1,
-            "kind": "white_patch",
-            "label": "Possible pasted or corrected area",
-            "severity": risk,
-            "reason": "An unusually uniform bright patch was detected in this area.",
-            "bbox_normalized": {
-                "x0": x / width,
-                "y0": y / height,
-                "x1": (x + w) / width,
-                "y1": (y + h) / height,
-            },
-        })
-    for anomaly in noise_anom:
-        row, col = anomaly["grid_pos"]
-        regions.append({
-            "page": 1,
-            "kind": "noise_anomaly",
-            "label": "Noise inconsistency",
-            "severity": risk,
-            "reason": anomaly["reason"],
-            "bbox_normalized": {
-                "x0": col / 10,
-                "y0": row / 10,
-                "x1": (col + 1) / 10,
-                "y1": (row + 1) / 10,
-            },
-        })
-
-    structured_path = os.path.join(output_dir, f"{name}_tamper_analysis.json")
-    with open(structured_path, "w", encoding="utf-8") as structured_file:
-        json.dump({
-            "status": "completed",
-            "score": score,
-            "verdict": verdict,
-            "risk": risk,
-            "reasons": reasons,
-            "regions": regions,
-        }, structured_file, indent=2, ensure_ascii=False)
-
-    return out_path, score, verdict, reasons
-
-
-# ─────────────────────────────────────────────────────────────
-# SUMMARY CHART  (all documents)
-# ─────────────────────────────────────────────────────────────
-
-def generate_summary(results: list, output_dir: str) -> str:
-    """Save a horizontal bar chart summarising scores for all PDFs."""
-    fig, ax = plt.subplots(figsize=(14, max(5, len(results) * 1.4)),
-                           facecolor="#0f0f0f")
-    ax.set_facecolor("#0f0f0f")
-    ax.set_title("TAMPER DETECTION SUMMARY — ALL DOCUMENTS",
-                 color="white", fontsize=14, fontweight="bold", pad=15)
-
-    names  = [r["name"]  for r in results]
-    scores = [r["score"] for r in results]
-    colors = ["#e03030" if s >= 60 else "#e09030" if s >= 30 else "#30b860"
-              for s in scores]
-
-    bars = ax.barh(names, scores, color=colors, height=0.5, edgecolor="#444")
-    ax.set_xlim(0, 115)
-    ax.set_xlabel("Tamper Score (0–100)", color="white", fontsize=11)
-    ax.tick_params(colors="white", labelsize=11)
-    for spine in ax.spines.values():
-        spine.set_color("#333333")
-
-    ax.axvline(60, color="#e03030", linestyle="--", linewidth=1.2, alpha=0.7)
-    ax.axvline(30, color="#e09030", linestyle="--", linewidth=1.2, alpha=0.7)
-
-    for bar, score, r in zip(bars, scores, results):
-        short_verdict = r["verdict"].split("—")[0].strip()
-        ax.text(score + 1.5, bar.get_y() + bar.get_height() / 2,
-                f"{score}/100 — {short_verdict}",
-                va="center", color="white", fontsize=9)
-
-    legend_patches = [
-        mpatches.Patch(color="#e03030", label="HIGH likelihood of tampering  (score >= 60)"),
-        mpatches.Patch(color="#e09030", label="MODERATE suspicion            (score 30–59)"),
-        mpatches.Patch(color="#30b860", label="LOW suspicion                 (score < 30)"),
-    ]
-    ax.legend(handles=legend_patches, loc="lower right",
-              facecolor="#1a1a1a", labelcolor="white", fontsize=9, framealpha=0.8)
-
-    plt.tight_layout()
-    out_path = os.path.join(output_dir, "SUMMARY_tamper_report.png")
-    plt.savefig(out_path, dpi=120, bbox_inches="tight",
-                facecolor="#0f0f0f", edgecolor="none")
-    plt.close()
-    print(f"\n  Summary chart → {out_path}")
-    return out_path
-
-
-# ─────────────────────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────────────────────
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Detect tampering in scanned PDF documents.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python tamper_detect_local.py doc1.pdf doc2.pdf
-  python tamper_detect_local.py --folder ./scans
-  python tamper_detect_local.py *.pdf --output ./reports
-        """
-    )
-    parser.add_argument(
-        "pdfs", nargs="*",
-        help="One or more PDF file paths to analyze"
-    )
-    parser.add_argument(
-        "--folder", "-f",
-        help="Folder to scan for all *.pdf files"
-    )
-    parser.add_argument(
-        "--output", "-o",
-        default="./tamper_reports",
-        help="Output directory for report images (default: ./tamper_reports)"
-    )
-    parser.add_argument(
-        "--dpi", type=int, default=RENDER_DPI,
-        help=f"Render DPI (default: {RENDER_DPI})"
-    )
-    return parser.parse_args()
-
-
-# ─────────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────────
-
-def main():
+# ----------------------------------------------------------------- rendering --
+def render_pdf_pages(path: Path, dpi: int):
+    """Yield (page_index, rgb_array, effective_dpi, page_rect_pts)."""
+    doc = fitz.open(str(path))
+    if doc.needs_pass:
+        doc.close()
+        raise RuntimeError("password-protected PDF")
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except (AttributeError, OSError):
-        pass
-    args = parse_args()
+        for idx in range(doc.page_count):
+            page = doc.load_page(idx)
+            eff_dpi = dpi
+            est = (page.rect.width / 72 * dpi) * (page.rect.height / 72 * dpi)
+            if est > 40e6:  # keep memory sane on posters/plans
+                eff_dpi = max(96, int(dpi * math.sqrt(40e6 / est)))
+            pix = page.get_pixmap(dpi=eff_dpi, colorspace=fitz.csRGB, alpha=False)
+            rgb = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 3)
+            yield idx, rgb.copy(), eff_dpi, (page.rect.width, page.rect.height)
+    finally:
+        doc.close()
 
-    # Collect PDF paths
-    pdf_paths = list(args.pdfs)
-    if args.folder:
-        found = sorted(glob.glob(os.path.join(args.folder, "*.pdf")))
-        if not found:
-            print(f"[WARN] No PDF files found in folder: {args.folder}")
-        pdf_paths.extend(found)
 
-    if not pdf_paths:
-        print("No PDF files specified. Use positional args or --folder.")
-        print("Run with --help for usage information.")
-        sys.exit(1)
+def load_image(path: Path) -> np.ndarray:
+    data = np.fromfile(str(path), dtype=np.uint8)  # unicode-path safe on Windows
+    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if img is None:
+        raise RuntimeError("could not decode image")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # Override DPI if provided
-    global RENDER_DPI
-    RENDER_DPI = args.dpi
 
-    output_dir = args.output
-    os.makedirs(output_dir, exist_ok=True)
+# ---------------------------------------------------------------- annotation --
+def annotate(rgb: np.ndarray, regions: list[dict], dpi: int) -> np.ndarray:
+    img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    th = max(2, int(round(dpi / 90)))
+    fs = max(0.6, dpi / 300)
+    for r in regions:
+        c = r["confidence"]
+        color = (0, 0, 255) if c >= 0.6 else (0, 140, 255) if c >= 0.35 else (0, 200, 255)
+        x0, y0, x1, y1 = r["bbox_px"]
+        g = 4
+        x0, y0 = max(0, x0 - g), max(0, y0 - g)
+        x1, y1 = min(img.shape[1] - 1, x1 + g), min(img.shape[0] - 1, y1 + g)
+        cv2.rectangle(img, (x0, y0), (x1, y1), color, th)
+        label = f"whitener {c:.2f}"
+        (tw, tht), base = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, fs, 2)
+        ly = y0 - 10 if y0 - tht - 16 > 0 else min(img.shape[0] - 1, y1 + tht + 12)
+        cv2.rectangle(img, (x0, ly - tht - 6), (x0 + tw + 10, ly + base), color, -1)
+        cv2.putText(img, label, (x0 + 5, ly), cv2.FONT_HERSHEY_SIMPLEX, fs,
+                    (255, 255, 255), 2, cv2.LINE_AA)
+    return img
 
-    # Header
-    banner = "█" * 62
-    print(f"\n{banner}")
-    print("  PDF TAMPER DETECTION TOOL")
-    print(f"  Started : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  Files   : {len(pdf_paths)}")
-    print(f"  Output  : {os.path.abspath(output_dir)}")
-    print(f"{banner}")
 
-    results      = []
-    report_files = []
+def imwrite(path: Path, bgr: np.ndarray, jpeg_q: int | None = None) -> None:
+    ext = ".jpg" if jpeg_q else path.suffix
+    params = [cv2.IMWRITE_JPEG_QUALITY, jpeg_q] if jpeg_q else []
+    ok, buf = cv2.imencode(ext, bgr, params)
+    if not ok:
+        raise RuntimeError(f"encode failed for {path}")
+    path.write_bytes(buf.tobytes())
 
-    for pdf in pdf_paths:
-        if not os.path.isfile(pdf):
-            print(f"\n  [SKIP] File not found: {pdf}")
+
+# ------------------------------------------------------------------ pipeline --
+def process_file(path: Path, out_root: Path, dpi: int, annotate_all: bool) -> dict:
+    out_dir = out_root / path.stem
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    pages_out = []
+    annotated_pngs = []
+    annotated_bgr_pages = []   # (bgr, page_rect_pts) for the rebuilt PDF
+    any_regions = False
+
+    if path.suffix.lower() in IMAGE_SUFFIXES:
+        rgb = load_image(path)
+        it = [(0, rgb, dpi, (rgb.shape[1] * 72.0 / dpi, rgb.shape[0] * 72.0 / dpi))]
+    else:
+        if fitz is None:
+            raise RuntimeError("PyMuPDF (pip install pymupdf) is required for PDFs")
+        it = render_pdf_pages(path, dpi)
+
+    for idx, rgb, eff_dpi, rect_pts in it:
+        res = analyze_page(rgb, eff_dpi)
+        res["page"] = idx + 1
+        res["dpi"] = eff_dpi
+        sx = rect_pts[0] / res["size_px"][0]
+        sy = rect_pts[1] / res["size_px"][1]
+        for r in res["regions"]:
+            x0, y0, x1, y1 = r["bbox_px"]
+            r["bbox_pdf_pts"] = [round(x0 * sx, 1), round(y0 * sy, 1),
+                                 round(x1 * sx, 1), round(y1 * sy, 1)]
+        pages_out.append(res)
+
+        drawn = annotate(rgb, res["regions"], eff_dpi)
+        annotated_bgr_pages.append((drawn, rect_pts))
+        if res["regions"]:
+            any_regions = True
+        if res["regions"] or annotate_all:
+            png = out_dir / f"page_{idx + 1:03d}_annotated.png"
+            imwrite(png, drawn)
+            annotated_pngs.append(str(png))
+        print(f"  page {idx + 1}: probability {res['probability']:.2f}"
+              f"  ({len(res['regions'])} region(s)"
+              f"{', indeterminate' if res.get('indeterminate') else ''})",
+              flush=True)
+
+    doc_prob = 1.0
+    for p in pages_out:
+        doc_prob *= (1.0 - p["probability"])
+    doc_prob = round(min(1.0 - doc_prob, 0.98), 3)
+
+    annotated_pdf = None
+    if (any_regions or annotate_all) and fitz is not None:
+        annotated_pdf = out_dir / f"{path.stem}_annotated.pdf"
+        newdoc = fitz.open()
+        for bgr, (wpt, hpt) in annotated_bgr_pages:
+            ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            page = newdoc.new_page(width=wpt, height=hpt)
+            page.insert_image(page.rect, stream=buf.tobytes())
+        newdoc.save(str(annotated_pdf))
+        newdoc.close()
+
+    report = {
+        "tool": "whitener-detect", "version": VERSION,
+        "file": str(path), "requested_dpi": dpi,
+        "document_probability": doc_prob,
+        "max_page_probability": max((p["probability"] for p in pages_out), default=0.0),
+        "pages": pages_out,
+        "outputs": {
+            "annotated_pdf": str(annotated_pdf) if annotated_pdf else None,
+            "annotated_pages": annotated_pngs,
+        },
+    }
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="whitener_detect",
+        description="Estimate the probability that a scanned PDF has correction "
+                    "fluid (white-out) on it, and box the suspect areas.")
+    ap.add_argument("inputs", nargs="+", help="scanned PDF(s) or page image(s)")
+    ap.add_argument("--dpi", type=int, default=200,
+                    help="render resolution for analysis (default 200)")
+    ap.add_argument("--out", default="whitener_out",
+                    help="output directory (default ./whitener_out)")
+    ap.add_argument("--annotate-all", action="store_true",
+                    help="write annotated images/PDF even for clean pages")
+    ap.add_argument("--json", action="store_true",
+                    help="print the full JSON report(s) to stdout")
+    ap.add_argument("--fail-over", type=float, default=None, metavar="P",
+                    help="exit with code 3 if any document probability >= P")
+    ap.add_argument("--version", action="version", version=VERSION)
+    args = ap.parse_args(argv)
+
+    out_root = Path(args.out)
+    reports, had_error = [], False
+    for raw in args.inputs:
+        path = Path(raw)
+        print(f"{path.name}:", flush=True)
+        if not path.exists():
+            print(f"  ERROR: not found", flush=True)
+            had_error = True
             continue
         try:
-            out_img, score, verdict, reasons = generate_report(pdf, output_dir)
-            report_files.append(out_img)
-            results.append({
-                "name":    os.path.splitext(os.path.basename(pdf))[0],
-                "score":   score,
-                "verdict": verdict,
-                "reasons": reasons,
-            })
-        except Exception as e:
-            print(f"\n  [ERROR] {pdf}: {e}")
-            traceback.print_exc()
+            rep = process_file(path, out_root, args.dpi, args.annotate_all)
+        except Exception as exc:
+            print(f"  ERROR: {exc}", flush=True)
+            had_error = True
+            continue
+        reports.append(rep)
+        verdict = ("LIKELY WHITENER" if rep["document_probability"] >= 0.6 else
+                   "possible whitener" if rep["document_probability"] >= 0.35 else
+                   "no whitener evidence")
+        print(f"  document probability: {rep['document_probability']:.2f}  [{verdict}]")
+        if rep["outputs"]["annotated_pdf"]:
+            print(f"  annotated pdf: {rep['outputs']['annotated_pdf']}")
+        print(f"  report: {Path(out_root) / Path(rep['file']).stem / 'report.json'}")
 
-    # Summary chart
-    if len(results) > 1:
-        summary_path = generate_summary(results, output_dir)
-        report_files.insert(0, summary_path)
-
-    # Final table
-    print("\n" + "─" * 62)
-    print("  FINAL RESULTS")
-    print("─" * 62)
-    for r in results:
-        flag = "!!!" if r["score"] >= 60 else " ! " if r["score"] >= 30 else "   "
-        print(f"  [{flag}]  {r['name']:<20s}  {r['score']:3d}/100   {r['verdict']}")
-    print("─" * 62)
-    print(f"\n  Reports saved to: {os.path.abspath(output_dir)}/")
-    print()
+    if args.json:
+        print(json.dumps(reports if len(reports) != 1 else reports[0], indent=2))
+    if had_error:
+        return 2
+    if args.fail_over is not None and any(
+            r["document_probability"] >= args.fail_over for r in reports):
+        return 3
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

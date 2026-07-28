@@ -12,6 +12,8 @@ import "./styles/history.css";
 import "./styles/settings.css";
 import "./styles/case.css";
 import "./styles/ask.css";
+import "./styles/pen-design.css";
+import "./styles/reports.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

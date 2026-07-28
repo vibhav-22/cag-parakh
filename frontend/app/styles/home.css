@@ -282,3 +282,57 @@
   .app[data-route="home"] .poster-checks span::before { transition-duration: 1ms; }
   .app[data-route="home"] .poster-cta-primary:hover i { transform: none; }
 }
+
+/* ── First run ─────────────────────────────────────────────────────────────
+   An empty dashboard is a dead end: nothing here teaches a new reviewer what a
+   verdict looks like. Shown only when no batch exists, and it disappears for
+   good once one does. */
+.app[data-route="home"] .first-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.app[data-route="home"] .first-run h2 {
+  margin: 6px 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.app[data-route="home"] .first-run p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.app[data-route="home"] .first-run-error { margin-top: 8px; color: var(--danger); font-size: 11px; }
+.app[data-route="home"] .first-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.app[data-route="home"] .first-run-actions button:disabled { opacity: .6; cursor: default; }
+.app[data-route="home"] .first-run-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.app[data-route="home"] .first-run-actions a:hover { color: var(--ink); }
+.app[data-route="home"] .first-run-actions a svg { width: 13px; height: 13px; }
+
+@media (max-width: 780px) {
+  .app[data-route="home"] .first-run { flex-direction: column; align-items: stretch; }
+}

@@ -13,16 +13,64 @@
 
 .mono-ref { font-family: var(--font-geist-mono), monospace; letter-spacing: .04em; }
 
-/* ---- /batches: live telemetry band ------------------------
-   Replaces the four generic metric tiles that used to sit on
-   every screen. The counts ride the progress track instead, so
-   the table starts higher and the band reads as this route's own.
+/* ---- /batches: status banner --------------------------------
+   The "case is intact" statement: analysis state, the batch's
+   identity, and the four headline counts in one dark card, the way
+   the rest of this workspace already treats the platen as the
+   darkest surface. Replaces the thin telemetry strip.
    --------------------------------------------------------- */
 
-.app[data-route="batches"] .batch-telemetry {
+.app[data-route="batches"] .batch-status-banner {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--route-canvas) 88%, #000);
 }
+.app[data-route="batches"] .bsb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.app[data-route="batches"] .bsb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--good, var(--accent));
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.app[data-route="batches"] .bsb-pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.app[data-route="batches"] .bsb-pill.running { color: var(--accent); }
+.app[data-route="batches"] .bsb-title { display: grid; gap: 2px; }
+.app[data-route="batches"] .bsb-title strong { font-size: 12.5px; }
+.app[data-route="batches"] .bsb-title small { color: var(--muted); font-size: 10px; }
+.app[data-route="batches"] .bsb-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+}
+.app[data-route="batches"] .bsb-stats > div { display: flex; align-items: baseline; gap: 8px; }
+.app[data-route="batches"] .bsb-stats dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.app[data-route="batches"] .bsb-stats dd {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 660;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.app[data-route="batches"] .bsb-clean dd { color: var(--good); }
+.app[data-route="batches"] .bsb-flagged dd { color: var(--danger); }
+.app[data-route="batches"] .bsb-review dd { color: var(--warning); }
 .app[data-route="batches"] .bt-track {
   height: 3px;
   border-radius: 2px;
@@ -36,30 +84,182 @@
   border-radius: 2px;
   transition: width 500ms var(--ease-out);
 }
-.app[data-route="batches"] .bt-stats {
-  margin: 0;
+
+/* ---- /batches: filter tabs ---------------------------------- */
+.app[data-route="batches"] .matrix-filter-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px 0 0;
 }
-.app[data-route="batches"] .bt-stats > div { display: flex; align-items: baseline; gap: 8px; }
-.app[data-route="batches"] .bt-stats dt {
+.app[data-route="batches"] .matrix-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 200px;
+  padding: 0 10px;
+  min-height: 30px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+  color: var(--subtle);
+  transition: border-color 150ms ease;
+}
+.app[data-route="batches"] .matrix-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--muted);
+}
+.app[data-route="batches"] .matrix-search svg { flex: 0 0 auto; }
+.app[data-route="batches"] .matrix-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+.app[data-route="batches"] .matrix-search input:focus { outline: none; }
+.app[data-route="batches"] .matrix-search input::-webkit-search-cancel-button { cursor: pointer; }
+.app[data-route="batches"] .matrix-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+.app[data-route="batches"] .matrix-filter-tabs button {
+  padding: 6px 12px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+.app[data-route="batches"] .matrix-filter-tabs button b {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--route-line);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.app[data-route="batches"] .matrix-filter-tabs button:hover { color: var(--ink); border-color: var(--line-strong); }
+.app[data-route="batches"] .matrix-filter-tabs button.active {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.app[data-route="batches"] .matrix-filter-tabs button.active b { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+/* ---- /batches: summary matrix (Document / Type / Checks /
+   Authenticity / Forensic signals / Status) ------------------- */
+.app[data-route="batches"] .summary-matrix .doc-link { display: grid; gap: 1px; }
+.app[data-route="batches"] .summary-matrix .doc-name { line-height: 1.3; }
+.app[data-route="batches"] .summary-matrix .doc-id { color: var(--subtle); font-size: 9px; font-weight: 500; letter-spacing: .02em; }
+.app[data-route="batches"] .summary-matrix .type-cell,
+.app[data-route="batches"] .summary-matrix .checks-cell { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.app[data-route="batches"] .summary-matrix .checks-cell small { color: var(--subtle); }
+.app[data-route="batches"] .authenticity-cell { min-width: 130px; }
+.app[data-route="batches"] .authenticity-empty { color: var(--subtle); }
+.app[data-route="batches"] .authenticity-bar {
+  position: relative;
+  height: 6px;
+  min-width: 90px;
+  border-radius: 3px;
+  background: var(--route-line);
+  overflow: visible;
+}
+.app[data-route="batches"] .authenticity-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--danger);
+  transition: width 400ms var(--ease-out);
+}
+.app[data-route="batches"] .authenticity-bar.tone-good > span { background: var(--good); }
+.app[data-route="batches"] .authenticity-bar.tone-warning > span,
+.app[data-route="batches"] .authenticity-bar.tone-neutral > span { background: var(--warning); }
+.app[data-route="batches"] .authenticity-bar > b {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.app[data-route="batches"] .signals-cell { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
+.app[data-route="batches"] .signal-chip {
+  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--route-panel);
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.app[data-route="batches"] .signal-chip.more { color: var(--muted); }
+.app[data-route="batches"] .signal-none { color: var(--subtle); font-size: 10px; }
+.app[data-route="batches"] .status-dot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.app[data-route="batches"] .status-dot-chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.app[data-route="batches"] .status-dot-chip.good { color: var(--good); }
+.app[data-route="batches"] .status-dot-chip.warning { color: var(--warning); }
+.app[data-route="batches"] .status-dot-chip.danger { color: var(--danger); }
+.app[data-route="batches"] .status-dot-chip.neutral,
+.app[data-route="batches"] .status-dot-chip.pending { color: var(--muted); }
+
+/* ---- /batches: the detailed per-analyzer matrix, tucked away
+   behind disclosure so the summary table is the primary read. --- */
+.app[data-route="batches"] .detail-matrix { margin-top: 14px; }
+.app[data-route="batches"] .detail-matrix > summary {
+  padding: 8px 2px;
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.app[data-route="batches"] .detail-matrix > summary::-webkit-details-marker { display: none; }
+.app[data-route="batches"] .detail-matrix[open] > summary { margin-bottom: 4px; }
+
+.app[data-route="batches"] .matrix-custody {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--route-line);
   color: var(--muted);
   font-size: 10px;
-  font-weight: 680;
-  letter-spacing: .1em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
-.app[data-route="batches"] .bt-stats dd {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 660;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.02em;
+.app[data-route="batches"] .mc-check {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--good-soft);
+  color: var(--good);
+  display: grid;
+  place-items: center;
+  font-size: 9px;
 }
-.app[data-route="batches"] .bt-stats dd small { color: var(--subtle); font-size: 11px; font-weight: 600; }
-.app[data-route="batches"] .bt-flagged dd { color: var(--accent); }
-.app[data-route="batches"] .bt-errors dd { color: var(--danger); }
 
 /* ---- /batches: the matrix as flat data, not a card -------- */
 
@@ -134,12 +334,133 @@
   background: var(--accent-soft);
 }
 .app[data-route="batches"] .matrix-tools button.active b { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.app[data-route="batches"] .matrix-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 2px 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.app[data-route="batches"] .matrix-pagination-controls { display: flex; gap: 4px; }
+.app[data-route="batches"] .matrix-pagination-controls button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.app[data-route="batches"] .matrix-pagination-controls button:hover:not(:disabled) { color: var(--ink); border-color: var(--line-strong); }
+.app[data-route="batches"] .matrix-pagination-controls button:disabled { opacity: .4; cursor: default; }
 .app[data-route="batches"] .matrix-empty {
   margin: 0;
   padding: 26px 14px;
   color: var(--muted);
   font-size: 12px;
   text-align: center;
+}
+.app[data-route="batches"] .matrix-test-name {
+  margin: 5px 0 0;
+  max-width: 74ch;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.app[data-route="batches"] .matrix-test-name strong { color: var(--ink); }
+.app[data-route="batches"] .test-rule-map {
+  margin-top: 14px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+  overflow: hidden;
+}
+.app[data-route="batches"] .test-rule-map > header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--route-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.app[data-route="batches"] .test-rule-map > header span {
+  color: var(--accent);
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.app[data-route="batches"] .test-rule-map > header h3 { margin: 3px 0 0; font-size: 13px; }
+.app[data-route="batches"] .test-rule-criterion { color: var(--text); font-size: 10.5px; line-height: 1.45; }
+.app[data-route="batches"] .test-rule-map > header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+.app[data-route="batches"] .test-rule-intent {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--route-line);
+  display: grid;
+  gap: 7px;
+}
+.app[data-route="batches"] .test-rule-intent p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.app[data-route="batches"] .test-rule-intent strong {
+  display: inline-block;
+  min-width: 112px;
+  color: var(--muted);
+  font-size: 8.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.app[data-route="batches"] .test-rule-list { display: grid; }
+.app[data-route="batches"] .test-rule-list article {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--route-line);
+}
+.app[data-route="batches"] .test-rule-list article:last-child { border-bottom: 0; }
+.app[data-route="batches"] .test-rule-head {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, .8fr) minmax(150px, .8fr);
+  align-items: center;
+  gap: 12px;
+}
+.app[data-route="batches"] .test-rule-head strong { font-size: 11px; }
+.app[data-route="batches"] .test-rule-head span { color: var(--muted); font-size: 9.5px; }
+.app[data-route="batches"] .test-rule-head span b {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  margin-right: 5px;
+  border-radius: 4px;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.app[data-route="batches"] .test-rule-list article > p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8.5px;
+  line-height: 1.55;
+}
+
+@media (max-width: 780px) {
+  .app[data-route="batches"] .test-rule-map > header { align-items: flex-start; flex-direction: column; }
+  .app[data-route="batches"] .test-rule-map > header p { text-align: left; }
+  .app[data-route="batches"] .test-rule-head { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
 
 /* ---- Document workspace: the lightbox ---------------------
@@ -176,8 +497,251 @@
 }
 
 .app[data-route="document"] .job-view { max-width: none; }
-.app[data-route="document"] .case-grid { gap: var(--route-gap); }
+/* Document center, evidence review on the right — the annotated page is the
+   thing under examination, so it gets the wider, first-visual-weight column. */
+.app[data-route="document"] .case-grid { gap: var(--route-gap); grid-template-columns: minmax(480px, 1.28fr) minmax(300px, .72fr); }
+.app[data-route="document"] .evidence-column { order: 1; }
+.app[data-route="document"] .results-column { order: 2; }
 .app[data-route="document"] .panel-title h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+
+/* ---- Header: unresolved pill + complete-review action --------- */
+.app[data-route="document"] .doc-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.app[data-route="document"] .unresolved-pill {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.app[data-route="document"] .complete-review-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #160f22;
+  font-size: 11px;
+  font-weight: 730;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 150ms ease, transform 140ms var(--ease-out);
+}
+.app[data-route="document"] .complete-review-button:active { transform: scale(.97); }
+
+/* ---- Evidence review: finding cards get a colored read on the
+   left edge, a model-confidence bar when the detector reports one,
+   and a quick verified/flagged call that jumps to the decision. --- */
+.app[data-route="document"] .result-card {
+  border-left: 3px solid transparent;
+  padding-left: 6px;
+}
+.app[data-route="document"] .result-card.warning { border-left-color: var(--warning); }
+.app[data-route="document"] .result-card.danger { border-left-color: var(--danger); }
+.app[data-route="document"] .result-card.good { border-left-color: color-mix(in srgb, var(--good) 55%, transparent); }
+.app[data-route="document"] .confidence-meter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 12px;
+}
+.app[data-route="document"] .confidence-meter span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.app[data-route="document"] .confidence-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--route-line); overflow: hidden; }
+.app[data-route="document"] .confidence-bar i { display: block; height: 100%; background: var(--danger); border-radius: 3px; }
+.app[data-route="document"] .confidence-bar.tone-good i { background: var(--good); }
+.app[data-route="document"] .confidence-bar.tone-warning i { background: var(--warning); }
+.app[data-route="document"] .confidence-meter b { flex: 0 0 auto; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.app[data-route="document"] .finding-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.app[data-route="document"] .finding-actions button {
+  min-height: 32px;
+  padding: 0 13px;
+  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+  font-weight: 720;
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out), background-color 150ms ease, border-color 150ms ease;
+}
+.app[data-route="document"] .finding-actions .confirm-flag {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #2a0810;
+}
+.app[data-route="document"] .finding-actions .mark-clean {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+}
+.app[data-route="document"] .finding-actions button:active { transform: scale(.97); }
+
+/* ---- Document checks: the compact pass/fail roster below the
+   findings, and the analysis-provenance line under it. ---------- */
+.app[data-route="document"] .document-checks {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .document-checks-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.app[data-route="document"] .document-checks-heading strong { font-size: 11.5px; }
+.app[data-route="document"] .document-checks-heading span { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.app[data-route="document"] .document-checks-heading small { color: var(--muted); font-weight: 500; font-size: 10px; }
+.app[data-route="document"] .document-checks ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.app[data-route="document"] .document-checks li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--route-line);
+  font-size: 10.5px;
+}
+.app[data-route="document"] .document-checks li:first-child { border-top: 0; }
+.app[data-route="document"] .dc-status { font-size: 9.5px; font-weight: 700; }
+.app[data-route="document"] .dc-status.good { color: var(--good); }
+.app[data-route="document"] .dc-status.warning { color: var(--warning); }
+.app[data-route="document"] .dc-status.danger { color: var(--danger); }
+.app[data-route="document"] .dc-status.neutral,
+.app[data-route="document"] .dc-status.pending { color: var(--muted); }
+/* The five result marks. Deliberately five and not two: a check that could not
+   run is not a failure, and metadata takes no position at all. */
+.app[data-route="document"] .check-mark {
+  flex: 0 0 auto;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.app[data-route="document"] .check-mark.pass { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.app[data-route="document"] .check-mark.fail { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.app[data-route="document"] .check-mark.error { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.app[data-route="document"] .check-mark.inconclusive,
+.app[data-route="document"] .check-mark.info,
+.app[data-route="document"] .check-mark.pending { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted); }
+
+.app[data-route="document"] .check-criterion {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.app[data-route="document"] .check-criterion span {
+  display: block;
+  color: var(--subtle);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.app[data-route="document"] .check-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px 14px;
+  margin: 8px 0 0;
+}
+.app[data-route="document"] .check-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--route-line);
+}
+.app[data-route="document"] .check-facts dt { color: var(--subtle); font-size: 9.5px; }
+.app[data-route="document"] .check-facts dd { margin: 0; font-size: 9.5px; text-align: right; word-break: break-word; }
+
+.app[data-route="document"] .check-criteria {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .check-criteria > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.app[data-route="document"] .check-criteria > summary::-webkit-details-marker { display: none; }
+.app[data-route="document"] .check-criteria > summary strong { font-size: 11.5px; }
+.app[data-route="document"] .check-criteria > summary small { display: block; color: var(--muted); font-size: 9.5px; }
+.app[data-route="document"] .check-criteria > summary > span {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.app[data-route="document"] .check-criteria-body { margin-top: 10px; }
+.app[data-route="document"] .check-criteria ul { margin: 0; padding: 0; list-style: none; }
+.app[data-route="document"] .criteria-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--route-line);
+}
+.app[data-route="document"] .criteria-row:first-child { border-top: 0; }
+.app[data-route="document"] .criteria-copy { min-width: 0; display: grid; gap: 3px; }
+.app[data-route="document"] .criteria-copy strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 10.5px;
+}
+.app[data-route="document"] .criteria-state {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  color: var(--muted);
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.app[data-route="document"] .criteria-state.pass { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.app[data-route="document"] .criteria-state.fail { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.app[data-route="document"] .criteria-state.error { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.app[data-route="document"] .criteria-rule { color: var(--subtle); font-size: 9.5px; line-height: 1.4; }
+.app[data-route="document"] .criteria-reason { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.app[data-route="document"] .criteria-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 5px;
+}
+.app[data-route="document"] .criteria-facts li {
+  padding: 2px 7px;
+  border: 1px solid var(--route-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.app[data-route="document"] .criteria-facts b { margin-right: 4px; color: var(--subtle); font-weight: 600; }
+
+.app[data-route="document"] .document-checks-meta { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--route-line); color: var(--subtle); font-size: 9.5px; }
+
+@media (max-width: 1120px) {
+  .app[data-route="document"] .case-grid { grid-template-columns: 1fr; }
+  .app[data-route="document"] .evidence-column,
+  .app[data-route="document"] .results-column { order: initial; }
+}
 
 .app[data-route="document"] .result-card,
 .app[data-route="document"] .document-viewer,
@@ -188,8 +752,14 @@
 .app[data-route="document"] .viewer-toolbar,
 .app[data-route="document"] .evidence-register { background: var(--route-panel); }
 
-.app[data-route="document"] .detected-photo {
+.app[data-route="document"] .detected-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
   margin: 0 0 12px;
+}
+.app[data-route="document"] .detected-photo {
+  margin: 0;
   padding: 10px;
   border: 1px solid var(--route-line);
   border-radius: var(--radius-sm);
@@ -197,7 +767,7 @@
 }
 .app[data-route="document"] .detected-photo img {
   display: block;
-  width: min(100%, 220px);
+  width: min(100%, 240px);
   max-height: 280px;
   margin: 0 auto;
   border-radius: 3px;
@@ -333,4 +903,428 @@
   .app[data-route="document"] .route-header-main { flex-wrap: wrap; }
   .app[data-route="document"] .vlm-query-heading { flex-direction: column; }
   .app[data-route="document"] .vlm-question-form > div { grid-template-columns: 1fr; }
+}
+
+/* ── The journey additions ─────────────────────────────────────────────────
+   Verdict-and-export, the duplicate cross-reference, the partial-failure escape
+   hatch, the calibration disclosure, in-workspace document Q&A, and the keyboard
+   triage legend. All scoped: the document route is the darkest surface in the
+   ladder, so every panel here sits on --route-surface and never introduces its
+   own hue. Teal stays "clear" and rose stays "critical"; neither is decoration. */
+
+/* "This exact file was screened before." Neutral by design — a resubmission is a
+   fact to check, not a finding, so it must not wear the critical colour. */
+.app[data-route="document"] .prior-screening {
+  display: flex;
+  gap: 12px;
+  margin-bottom: var(--route-gap);
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .prior-screening .ps-mark {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1.2;
+}
+.app[data-route="document"] .prior-screening strong { font-size: 11.5px; }
+.app[data-route="document"] .prior-screening p {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.app[data-route="document"] .prior-screening ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.app[data-route="document"] .prior-screening li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.app[data-route="document"] .prior-screening li a { color: var(--accent); font-size: 11px; }
+.app[data-route="document"] .prior-screening li small { color: var(--muted); font-size: 10px; }
+
+.app[data-route="document"] .unanalyzable-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: var(--route-gap);
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .unanalyzable-notice strong { font-size: 11.5px; }
+.app[data-route="document"] .unanalyzable-notice p { margin: 4px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+.app[data-route="document"] .unanalyzable-notice button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* A crashed detector is rose, because the document has not actually been
+   screened and treating that as a result is the real failure mode. */
+.app[data-route="document"] .partial-failure {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+}
+.app[data-route="document"] .partial-failure strong { font-size: 11.5px; }
+.app[data-route="document"] .partial-failure p { margin: 4px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+.app[data-route="document"] .pf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.app[data-route="document"] .pf-actions button:first-child {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="document"] .pf-actions button:first-child:disabled { opacity: .55; cursor: default; }
+.app[data-route="document"] .pf-error { margin: 0; color: var(--danger); font-size: 10.5px; }
+
+/* The calibration disclosure. Closed by default so it does not shout on every
+   document, but placed directly above the control that records a decision — the
+   only moment a reviewer needs it. */
+.app[data-route="document"] .calibration-note {
+  margin-bottom: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .calibration-note summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.app[data-route="document"] .calibration-note summary::-webkit-details-marker { display: none; }
+.app[data-route="document"] .calibration-note summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.app[data-route="document"] .calibration-note[open] summary::after { content: "–"; }
+.app[data-route="document"] .calibration-note summary strong { font-size: 11px; }
+.app[data-route="document"] .calibration-note summary small { color: var(--muted); font-size: 10px; }
+/* Not a grid: a grid container blockifies its children, which drops the list
+   markers. These read as a list of separate claims, so the markers matter. */
+.app[data-route="document"] .calibration-note ul {
+  margin: 0;
+  padding: 0 14px 12px 32px;
+  list-style: disc;
+}
+.app[data-route="document"] .calibration-note li {
+  margin-bottom: 7px;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  line-height: 1.6;
+  list-style: disc;
+}
+.app[data-route="document"] .calibration-note li::marker { color: var(--muted); }
+
+.app[data-route="document"] .decision-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.app[data-route="document"] .decision-fields label {
+  display: grid;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.app[data-route="document"] .decision-fields label span { color: var(--muted); font-weight: 500; }
+.app[data-route="document"] .decision-fields input {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+}
+.app[data-route="document"] .decision-fields input:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+.app[data-route="document"] .escalation-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+/* The end of the journey. Violet, because export is the action this whole screen
+   has been building toward. */
+.app[data-route="document"] .export-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .export-copy { display: grid; gap: 4px; max-width: 42ch; }
+.app[data-route="document"] .export-copy strong { font-size: 11.5px; }
+.app[data-route="document"] .export-copy small { color: var(--muted); font-size: 10px; line-height: 1.55; }
+.app[data-route="document"] .export-actions { display: flex; align-items: center; gap: 8px; }
+.app[data-route="document"] .export-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+.app[data-route="document"] .export-actions a.export-primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.app[data-route="document"] .export-actions a:hover { border-color: var(--accent); color: var(--accent-hover); }
+.app[data-route="document"] .export-warning {
+  margin: 8px 0 0;
+  color: var(--warning);
+  font-size: 10px;
+}
+
+/* Document-scoped Q&A. Below the viewer and above the decision, because it is a
+   way of reading the document rather than a source of verdicts. */
+.app[data-route="document"] .ask-doc {
+  margin-top: var(--route-gap);
+  padding: 14px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+}
+.app[data-route="document"] .ask-doc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.app[data-route="document"] .ask-doc-head h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.app[data-route="document"] .ask-doc-head span { color: var(--muted); font-size: 9.5px; }
+.app[data-route="document"] .ask-doc-form { display: grid; gap: 8px; }
+.app[data-route="document"] .ask-doc-form textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.app[data-route="document"] .ask-doc-form textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
+}
+.app[data-route="document"] .ask-doc-form button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="document"] .ask-doc-form button:disabled { opacity: .5; cursor: default; }
+.app[data-route="document"] .ask-doc-suggestions { display: grid; gap: 5px; margin-top: 10px; }
+.app[data-route="document"] .ask-doc-suggestions button {
+  padding: 7px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.app[data-route="document"] .ask-doc-suggestions button:hover { border-style: solid; border-color: var(--accent); color: var(--accent-hover); }
+.app[data-route="document"] .ask-doc-answer { margin-top: 12px; display: grid; gap: 9px; }
+.app[data-route="document"] .ask-doc-text { margin: 0; font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.app[data-route="document"] .ask-doc-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.app[data-route="document"] .ask-doc-citations,
+.app[data-route="document"] .ask-doc-limits { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.app[data-route="document"] .ask-doc-citations li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.app[data-route="document"] .ask-doc-citations button {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: var(--route-panel);
+  color: var(--accent-hover);
+  font-size: 9.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="document"] .ask-doc-citations li span { color: var(--ink-soft); font-size: 10.5px; line-height: 1.5; }
+.app[data-route="document"] .ask-doc-limits li { color: var(--warning); font-size: 10px; line-height: 1.5; }
+.app[data-route="document"] .ask-doc-note { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.app[data-route="document"] .ask-doc-note.error { color: var(--danger); }
+
+.app[data-route="document"] .key-hint-toggle {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="document"] .key-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .key-hints > div { display: flex; align-items: baseline; gap: 7px; }
+.app[data-route="document"] .key-hints dt {
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--ink);
+  font-size: 9.5px;
+}
+.app[data-route="document"] .key-hints dd { margin: 0; color: var(--muted); font-size: 10px; }
+
+/* Batch route: the queue entry and the exports. The reviewer's next action is a
+   document, not a cell in this table, so it gets the only accent button. */
+.app[data-route="batches"] .batch-aside { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.app[data-route="batches"] .notify-button {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app[data-route="batches"] .notify-button:hover { border-color: var(--accent); color: var(--accent-hover); }
+.app[data-route="batches"] .notify-state { color: var(--muted); font-size: 9.5px; }
+
+.app[data-route="batches"] .batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-surface);
+}
+.app[data-route="batches"] .ba-queue { display: grid; gap: 6px; max-width: 52ch; }
+.app[data-route="batches"] .ba-queue small { color: var(--muted); font-size: 10px; line-height: 1.55; }
+.app[data-route="batches"] .ba-primary {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.app[data-route="batches"] .ba-exports { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.app[data-route="batches"] .ba-export {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.app[data-route="batches"] .ba-export:hover { border-color: var(--accent); color: var(--accent-hover); }
+.app[data-route="batches"] .decision-cell { white-space: nowrap; }
+.app[data-route="batches"] .decision-recorded { color: var(--ink-soft); font-size: 10px; }
+.app[data-route="batches"] .decision-open { color: var(--warning); font-size: 10px; }
+
+@media (max-width: 780px) {
+  .app[data-route="document"] .export-block,
+  .app[data-route="batches"] .batch-actions { flex-direction: column; align-items: stretch; }
+  .app[data-route="document"] .decision-options { grid-template-columns: 1fr; }
+}
+
+/* ── Screening test's decision rule in the workspace ────────────────────────
+   Carried from the profile the run was started under, shown above the
+   calibration note so the reviewer applies the same rule to every document. */
+.app[data-route="document"] .decision-rule {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+}
+.app[data-route="document"] .decision-rule .dr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.app[data-route="document"] .decision-rule .dr-eyebrow {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.app[data-route="document"] .decision-rule strong { font-size: 11.5px; }
+.app[data-route="document"] .decision-rule .dr-goal { margin: 6px 0 0; color: var(--ink-soft); font-size: 10.5px; line-height: 1.55; }
+.app[data-route="document"] .decision-rule .dr-guidance { margin: 8px 0 0; color: var(--ink); font-size: 10.5px; line-height: 1.6; }
+.app[data-route="document"] .decision-rule .dr-guidance span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }

@@ -26,6 +26,9 @@ outputs/same_phone_test_reports/
 # Local app/session folders
 .agents/
 .codex/
+.claude/
+*.log
+*.tsbuildinfo
 
 # Keep reusable deliverable toolkits tracked
 !outputs/
@@ -34,3 +37,11 @@ outputs/same_phone_test_reports/
 !outputs/same_phone_pdf_check_toolkit/
 !outputs/same_phone_pdf_check_toolkit/**
 backend/data/
+
+# Downloaded local AI runtime and model weights
+backend/models/
+backend/runtime/
+# Signature detector weight (large binary; fetch per weights/README.md)
+tools/signature_analysis/weights/*.pt
+# Signature benchmark outputs
+tools/signature_analysis/benchmark_out/

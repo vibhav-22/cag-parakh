@@ -3,9 +3,27 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdvancedSettings, { AnalysisSettings, DEFAULT_ANALYSIS_SETTINGS } from "../advanced-settings";
-import { API_URL, MAX_BATCH_FILES, analyzerLabel, initialAnalysisSettings, storedDefaultAnalyzers } from "../lib/format";
+import NavLink from "./nav-link";
+import {
+  API_URL,
+  MAX_BATCH_FILES,
+  analyzerLabel,
+  formatBytes,
+  formatWhen,
+  initialAnalysisSettings,
+  storedDefaultAnalyzers,
+  titleCase,
+} from "../lib/format";
 import { useSession } from "../lib/session";
-import type { Analyzer, Batch } from "../lib/types";
+import {
+  MAX_PROFILE_GOAL,
+  MAX_PROFILE_GUIDANCE,
+  MAX_PROFILE_NAME,
+  ScreeningProfile,
+  listProfiles,
+  saveProfile,
+} from "../lib/profiles";
+import type { Analyzer, Batch, PreflightReport } from "../lib/types";
 
 /**
  * The body of the /new route: upload, presets, check selection, and the
@@ -30,11 +48,27 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
   const [analyzers, setAnalyzers] = useState<Analyzer[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [batchName, setBatchName] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [analysisSettings, setAnalysisSettings] = useState<AnalysisSettings>(initialAnalysisSettings);
+  const [preflight, setPreflight] = useState<PreflightReport | null>(null);
+  const [checkingFiles, setCheckingFiles] = useState(false);
+
+  // Screening profiles — the flowchart's "use saved profile" / "create
+  // screening profile" branch. `activeProfile` is the named test this run is
+  // being started under; it is stamped onto the batch so every document
+  // remembers the goal and decision rule it was judged against. Selecting a
+  // profile applies its checks and thresholds; the stamp itself is the intent,
+  // not the config, so a later threshold tweak never contradicts it.
+  const [profiles, setProfiles] = useState<ScreeningProfile[]>([]);
+  const [activeProfile, setActiveProfile] = useState<ScreeningProfile | null>(null);
+  const [profileForm, setProfileForm] = useState<{ name: string; goal: string; guidance: string } | null>(null);
+  const [profileNotice, setProfileNotice] = useState("");
+
+  useEffect(() => { setProfiles(listProfiles()); }, []);
 
   // Deliberately no persistence here. These are per-run overrides for THIS
   // batch, seeded from the saved defaults and never written back — which is
@@ -67,26 +101,73 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
       });
   }, [handleUnauthorized, setServiceStatus]);
 
+  // Pre-flight: check the selected files before creating any jobs. This catches
+  // the two things that waste a reviewer's time most — a file that was already
+  // screened, and a file that was never going to open — and it catches them
+  // while the reviewer is still standing at intake rather than five minutes into
+  // an analysis. The cost is sending the bytes twice on a local service, which
+  // is the right trade for finding a resubmission before it becomes a case.
+  const fileSignature = files.map((item) => `${item.name}:${item.size}`).join("|");
+  useEffect(() => {
+    if (files.length === 0) {
+      setPreflight(null);
+      return;
+    }
+    let cancelled = false;
+    setCheckingFiles(true);
+    const body = new FormData();
+    for (const item of files) body.append("files", item);
+    fetch(`${API_URL}/api/v1/documents/preflight`, { method: "POST", body })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: PreflightReport | null) => { if (!cancelled) setPreflight(payload); })
+      .catch(() => { if (!cancelled) setPreflight(null); })
+      .finally(() => { if (!cancelled) setCheckingFiles(false); });
+    return () => { cancelled = true; };
+    // Keyed on the file identities, not the array instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileSignature]);
+
   // The header band lives on the page, so the step indicator has to be told
   // what the form knows. Counts only, and only when they actually change.
   useEffect(() => {
     onProgress?.({ files: files.length, checks: selected.length, analyzers: analyzers.length });
   }, [files.length, selected.length, analyzers.length, onProgress]);
 
+  // Files pre-flight found unreadable. Submitting them would queue an analysis
+  // that cannot run, so they are dropped from the batch rather than silently
+  // producing a document full of check errors.
+  const blockedNames = new Set(
+    (preflight?.files || []).filter((item) => !item.readable).map((item) => item.filename),
+  );
+  const submittable = files.filter((item) => !blockedNames.has(item.name));
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (files.length === 0 || selected.length === 0) return;
+    if (submittable.length === 0 || selected.length === 0) return;
     setError("");
     setSubmitting(true);
     const body = new FormData();
-    for (const item of files) body.append("files", item);
+    for (const item of submittable) body.append("files", item);
     body.append("settings", JSON.stringify(analysisSettings));
+    if (batchName.trim()) body.append("batch_name", batchName.trim());
+    if (activeProfile) {
+      // Stamp the test onto the run: id, name, goal, and the reviewer's written
+      // decision rule. Not the settings — those already ride on the request
+      // above and stay the reproducible record of what actually ran.
+      body.append("profile", JSON.stringify({
+        id: activeProfile.id,
+        name: activeProfile.name,
+        goal: activeProfile.goal,
+        guidance: activeProfile.guidance,
+      }));
+    }
     try {
       const response = await fetch(`${API_URL}/api/v1/batches?analyzers=${encodeURIComponent(selected.join(","))}`, { method: "POST", body });
       if (response.status === 401) return handleUnauthorized();
       const payload: Batch = await response.json();
       if (!response.ok) throw new Error((payload as unknown as { detail?: string }).detail || "Unable to start analysis");
       setFiles([]);
+      setBatchName("");
       router.push(`/batches/${payload.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to start analysis");
@@ -128,11 +209,166 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
     else setSelected(available.slice(0, Math.max(1, Math.ceil(available.length * 0.65))).map((item) => item.id));
   }
 
+  // Use a saved profile: apply its checks and thresholds, and mark the run as
+  // running under it. Checks the profile names that this backend no longer
+  // offers are dropped rather than sent and rejected.
+  function applyProfile(profile: ScreeningProfile) {
+    const availableIds = analyzers.filter((item) => item.available !== false).map((item) => item.id);
+    const usable = profile.analyzers.filter((id) => availableIds.includes(id));
+    setSelected(usable.length ? usable : availableIds);
+    setAnalysisSettings(profile.settings);
+    setActiveProfile(profile);
+    setProfileForm(null);
+    setProfileNotice(usable.length === profile.analyzers.length
+      ? ""
+      : "Some checks saved in this test are not available here and were left off.");
+  }
+
+  function clearProfile() {
+    setActiveProfile(null);
+    setProfileNotice("");
+  }
+
+  // Create a screening profile from the setup on screen: name the test, state
+  // its goal, and write the decision rule. This is the deliberate inversion of
+  // profile-first setup — the reviewer defines the rule once they can see what
+  // the checks produce, not before.
+  function startNewProfile() {
+    setProfileForm({ name: "", goal: "", guidance: "" });
+    setProfileNotice("");
+  }
+
+  function commitProfile() {
+    if (!profileForm || !profileForm.name.trim()) {
+      setProfileNotice("Give the test a name before saving it.");
+      return;
+    }
+    const saved = saveProfile({
+      id: activeProfile?.id,
+      name: profileForm.name,
+      goal: profileForm.goal,
+      guidance: profileForm.guidance,
+      analyzers: selected,
+      settings: analysisSettings,
+    });
+    if (!saved) {
+      setProfileNotice("This browser is blocking local storage, so the test could not be saved.");
+      return;
+    }
+    setProfiles(listProfiles());
+    setActiveProfile(saved);
+    setProfileForm(null);
+    setProfileNotice(`Saved “${saved.name}”. It is now applied to this run.`);
+  }
+
+  // True once the live selection or thresholds have drifted from the applied
+  // profile. The stamp still stands (it records the intent), but the reviewer
+  // should know the config no longer matches the saved test.
+  const profileModified = Boolean(activeProfile) && (
+    JSON.stringify(analysisSettings) !== JSON.stringify(activeProfile!.settings)
+    || [...selected].sort().join(",") !== [...activeProfile!.analyzers].sort().join(",")
+  );
+
   const totalUploadMb = files.reduce((sum, item) => sum + item.size, 0) / 1024 / 1024;
   const overridden = JSON.stringify(analysisSettings) !== JSON.stringify(DEFAULT_ANALYSIS_SETTINGS);
 
   return (
     <form className="setup-form" aria-label="New document review" onSubmit={submit}>
+      <section className="setup-block profile-block" aria-labelledby="setup-profile">
+        <div className="setup-block-head">
+          <span className="setup-ordinal" aria-hidden="true">★</span>
+          <div>
+            <h2 id="setup-profile">Screening test</h2>
+            <p>Reuse a saved test, or run an ad-hoc screening. A test names a goal and a decision rule and applies the same checks every time.</p>
+          </div>
+        </div>
+
+        <div className="profile-bar">
+          <label className="profile-picker">
+            <span className="sr-only">Choose a saved screening test</span>
+            <select
+              value={activeProfile?.id || ""}
+              onChange={(event) => {
+                const chosen = profiles.find((item) => item.id === event.target.value);
+                if (chosen) applyProfile(chosen);
+                else clearProfile();
+              }}
+            >
+              <option value="">Ad-hoc screening (no test)</option>
+              {profiles.map((profile) => (
+                <option value={profile.id} key={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </label>
+          {profileForm === null && (
+            <button type="button" className="text-button" onClick={startNewProfile}>
+              {activeProfile ? "Save current setup as a new test" : "Create a test from this setup"}
+            </button>
+          )}
+        </div>
+
+        {activeProfile && profileForm === null && (
+          <div className={`profile-active ${profileModified ? "modified" : ""}`} role="note">
+            <div className="profile-active-head">
+              <strong>{activeProfile.name}</strong>
+              {profileModified && <span className="profile-tag">Modified for this run</span>}
+              <button type="button" className="text-button" onClick={() => setProfileForm({ name: activeProfile.name, goal: activeProfile.goal, guidance: activeProfile.guidance })}>Edit</button>
+            </div>
+            {activeProfile.goal && <p className="profile-goal">{activeProfile.goal}</p>}
+            {activeProfile.guidance && (
+              <p className="profile-guidance"><span>Decision rule</span>{activeProfile.guidance}</p>
+            )}
+          </div>
+        )}
+
+        {profileForm !== null && (
+          <div className="profile-form">
+            <label>
+              <span>Name the test <b aria-hidden="true">*</b></span>
+              <input
+                value={profileForm.name}
+                maxLength={MAX_PROFILE_NAME}
+                placeholder="e.g. Birth certificate — full screening"
+                onChange={(event) => setProfileForm((form) => form && { ...form, name: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Goal <small>What is this test for?</small></span>
+              <textarea
+                value={profileForm.goal}
+                maxLength={MAX_PROFILE_GOAL}
+                rows={2}
+                placeholder="Confirm a scanned birth certificate is an authentic original before it is accepted."
+                onChange={(event) => setProfileForm((form) => form && { ...form, goal: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Decision rule <small>How should the reviewer decide?</small></span>
+              <textarea
+                value={profileForm.guidance}
+                maxLength={MAX_PROFILE_GUIDANCE}
+                rows={3}
+                placeholder="Flag if the QR is missing or whitener probability exceeds 40%. Always verify the certificate number against the issuing portal before verifying."
+                onChange={(event) => setProfileForm((form) => form && { ...form, guidance: event.target.value })}
+              />
+            </label>
+            <p className="profile-form-note">
+              This test captures the {selected.length} check{selected.length === 1 ? "" : "s"} and
+              thresholds selected below. It is saved on this device only. What earns each check a
+              tick is fixed by the check itself and is listed under &ldquo;Choose the checks&rdquo;.
+            </p>
+            <div className="profile-form-actions">
+              <button type="button" className="text-button" onClick={() => { setProfileForm(null); setProfileNotice(""); }}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={commitProfile}>
+                {activeProfile && activeProfile.name === profileForm.name ? "Update test" : "Save test"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {profileNotice && <p className="profile-notice" role="status">{profileNotice}</p>}
+      </section>
+
       <section className="setup-block" aria-labelledby="setup-documents">
         <div className="setup-block-head">
           <span className="setup-ordinal" aria-hidden="true">1</span>
@@ -141,6 +377,20 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
             <p>Everything stays on this machine. Nothing is uploaded to a third party.</p>
           </div>
         </div>
+
+        <label className="batch-name-field">
+          <div className="field-label"><span>Batch name</span><small>Optional — makes this run easy to find later</small></div>
+          <input
+            type="text"
+            value={batchName}
+            maxLength={80}
+            placeholder="e.g. Passport intake — July batch"
+            onChange={(event) => setBatchName(event.target.value)}
+          />
+          <small className="batch-name-hint">
+            {batchName.trim() ? "" : "Left blank, a name is generated from the documents you upload."}
+          </small>
+        </label>
 
         <div className="field-label"><span>Documents</span><small>PDF or image, up to 25 MB each</small></div>
         <label
@@ -174,6 +424,61 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
             </li>
           </ul>
         )}
+        {files.length > 0 && (
+          <div className="preflight" aria-live="polite">
+            <div className="pf-head">
+              <strong>Pre-flight</strong>
+              <span>
+                {checkingFiles
+                  ? "Checking the selected files…"
+                  : !preflight
+                    ? "Files could not be checked — screening will still run."
+                    : preflight.duplicate_count === 0 && preflight.blocked_count === 0
+                      ? "All files open, and none of them has been screened here before."
+                      : [
+                        preflight.duplicate_count ? `${preflight.duplicate_count} already screened` : "",
+                        preflight.blocked_count ? `${preflight.blocked_count} cannot be screened` : "",
+                      ].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+
+            {preflight && (preflight.duplicate_count > 0 || preflight.blocked_count > 0
+              || preflight.files.some((item) => item.warning)) && (
+              <ul className="pf-list">
+                {preflight.files.filter((item) => !item.readable || item.prior_screenings.length || item.warning).map((item) => (
+                  <li key={`${item.filename}-${item.size_bytes}`} className={item.readable ? (item.prior_screenings.length ? "duplicate" : "warn") : "blocked"}>
+                    <div className="pf-file">
+                      <strong>{item.filename}</strong>
+                      <small>{formatBytes(item.size_bytes)}{item.page_count ? ` · ${item.page_count} ${item.page_count === 1 ? "page" : "pages"}` : ""}</small>
+                    </div>
+                    {!item.readable && <p className="pf-reason">{item.blocker} It will be left out of this batch.</p>}
+                    {item.readable && item.prior_screenings.length > 0 && (
+                      <div className="pf-reason">
+                        <p>
+                          This exact file was screened {item.prior_screenings.length}{" "}
+                          {item.prior_screenings.length === 1 ? "time" : "times"} before. A resubmission
+                          of identical bytes — not evidence that someone else screened this document.
+                        </p>
+                        <ul>
+                          {item.prior_screenings.slice(0, 3).map((prior) => (
+                            <li key={prior.job_id}>
+                              {prior.batch_id
+                                ? <NavLink href={`/batches/${prior.batch_id}/documents/${prior.job_id}`}>{prior.filename}</NavLink>
+                                : <span>{prior.filename}</span>}
+                              <small>{formatWhen(prior.created_at)} · {titleCase(prior.machine_verdict)}</small>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {item.readable && item.warning && <p className="pf-reason">{item.warning}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {submitting && <div className="upload-feedback" role="status"><div><span>Uploading {files.length === 1 ? "document" : `${files.length} documents`}</span><small>Preparing secure analysis</small></div><i><b /></i></div>}
       </section>
 
@@ -182,7 +487,11 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
           <span className="setup-ordinal" aria-hidden="true">2</span>
           <div>
             <h2 id="setup-checks">Choose the checks</h2>
-            <p>Start from a preset, then add or drop individual detectors for this case.</p>
+            <p>
+              Start from a preset, then add or drop individual detectors for this case. Each check
+              states what earns it a pass — that rule belongs to the check and is the same for every
+              document.
+            </p>
           </div>
         </div>
 
@@ -206,7 +515,13 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
             <label className={`analyzer-row ${analyzer.available === false ? "unavailable" : ""}`} key={analyzer.id} title={analyzer.availability_message || undefined}>
               <input type="checkbox" checked={selected.includes(analyzer.id)} disabled={analyzer.available === false} onChange={() => toggleAnalyzer(analyzer.id)} />
               <span className="checkmark">✓</span>
-              <span><strong>{analyzerLabel(analyzer.id)}</strong><small>{analyzer.available === false ? analyzer.availability_message : analyzer.description}</small></span>
+              <span>
+                <strong>{analyzerLabel(analyzer.id)}</strong>
+                <small>{analyzer.available === false ? analyzer.availability_message : analyzer.description}</small>
+                {analyzer.available !== false && analyzer.criterion && (
+                  <em className="analyzer-criterion">{analyzer.criterion}</em>
+                )}
+              </span>
             </label>
           ))}
         </div>
@@ -241,8 +556,8 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
       {error && <div className="feedback-toast error" role="alert"><span aria-hidden="true">!</span><p><strong>Unable to continue</strong>{error}</p></div>}
 
       <div className="setup-submit">
-        <button className="primary-button" disabled={files.length === 0 || selected.length === 0 || submitting}>
-          {submitting ? "Submitting..." : files.length > 1 ? `Screen ${files.length} documents` : "Run document analysis"}
+        <button className="primary-button" disabled={submittable.length === 0 || selected.length === 0 || submitting}>
+          {submitting ? "Submitting..." : submittable.length > 1 ? `Screen ${submittable.length} documents` : "Run document analysis"}
           <span aria-hidden="true">→</span>
         </button>
         <p className="setup-submit-note">
@@ -250,7 +565,9 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
             ? "Add at least one PDF or image to begin."
             : selected.length === 0
               ? "Select at least one screening check to begin."
-              : `${files.length} ${files.length === 1 ? "document" : "documents"} · ${selected.length} ${selected.length === 1 ? "check" : "checks"} · results open in a case you can return to.`}
+              : submittable.length === 0
+                ? "None of the selected files can be screened. Replace them to continue."
+                : `${submittable.length} ${submittable.length === 1 ? "document" : "documents"}${blockedNames.size ? ` (${blockedNames.size} skipped)` : ""} · ${selected.length} ${selected.length === 1 ? "check" : "checks"} · results open in a case you can return to.`}
         </p>
       </div>
     </form>

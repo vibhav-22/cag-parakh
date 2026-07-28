@@ -68,6 +68,26 @@ def normalize_for_grouping(name):
     return re.sub(r"[\s\-_]+", "", name).lower()
 
 
+def font_is_embedded(doc, xref, font_type):
+    """Return whether the PDF actually stores glyph data for this font.
+
+    ``page.get_fonts()`` also reports references to the PDF Base-14 fonts.
+    Those entries commonly have xref 0 and extension ``n/a``: a reader supplies
+    the font, so it is incorrect to call it embedded. Type3 fonts are an
+    exception because their glyph programs live directly in the PDF object.
+    """
+    if str(font_type).lower() == "type3":
+        return True
+    if not isinstance(xref, int) or xref <= 0:
+        return False
+    try:
+        extracted = doc.extract_font(xref)
+        font_bytes = extracted[-1] if isinstance(extracted, tuple) and extracted else b""
+        return isinstance(font_bytes, (bytes, bytearray)) and bool(font_bytes)
+    except Exception:
+        return False
+
+
 def extract_fonts_from_pdf(pdf_path: str):
     pdf_path = Path(pdf_path)
 
@@ -92,6 +112,7 @@ def extract_fonts_from_pdf(pdf_path: str):
             base_font = font[3]
             name = font[4]
             encoding = font[5]
+            embedded = font_is_embedded(doc, xref, font_type)
 
             resolved_name = base_font
             resolved_via = "BaseFont"
@@ -118,6 +139,8 @@ def extract_fonts_from_pdf(pdf_path: str):
                     "encoding": encoding,
                     "internal_name": name,
                     "extension": ext,
+                    "embedded": embedded,
+                    "source": "embedded" if embedded else "referenced",
                     "resolved_via": resolved_via,
                     "pages_used": set(),
                 }
@@ -174,13 +197,31 @@ def extract_fonts_from_pdf(pdf_path: str):
         {"typeface": g["display_name"], "pages_used": sorted(list(g["pages"]))}
         for g in typeface_groups.values()
     ]
+    embedded_keys = {
+        normalize_for_grouping(font["typeface"])
+        for font in final_unique_fonts
+        if font["embedded"]
+    }
+    embedded_typefaces = [
+        typeface for typeface in final_typefaces
+        if normalize_for_grouping(typeface["typeface"]) in embedded_keys
+    ]
+    referenced_typefaces = [
+        typeface for typeface in final_typefaces
+        if normalize_for_grouping(typeface["typeface"]) not in embedded_keys
+    ]
 
     return {
         "pdf_file": str(pdf_path),
-        "font_objects_count": len(final_unique_fonts),   # raw embedded font objects
-        "typeface_count": len(final_typefaces),          # actual distinct fonts a human means
+        "font_objects_count": len(final_unique_fonts),
+        "embedded_font_objects_count": sum(font["embedded"] for font in final_unique_fonts),
+        "typeface_count": len(final_typefaces),
+        "embedded_typeface_count": len(embedded_typefaces),
+        "referenced_typeface_count": len(referenced_typefaces),
         "unique_fonts": final_unique_fonts,
         "typefaces": final_typefaces,
+        "embedded_typefaces": embedded_typefaces,
+        "referenced_typefaces": referenced_typefaces,
         "font_usage_records": font_records,
     }
 
@@ -216,8 +257,9 @@ def main():
     save_csv(data["font_usage_records"], args.csv)
 
     print("Font extraction completed.")
-    print(f"Font objects (raw, includes subset duplicates): {data['font_objects_count']}")
-    print(f"Distinct typefaces (merged across subsets/Type3 fallback): {data['typeface_count']}")
+    print(f"Font objects (embedded and referenced): {data['font_objects_count']}")
+    print(f"Embedded font objects: {data['embedded_font_objects_count']}")
+    print(f"Distinct embedded typefaces: {data['embedded_typeface_count']}")
     print(f"JSON saved to: {args.json}")
     print(f"CSV saved to: {args.csv}")
 
@@ -226,7 +268,8 @@ def main():
         print(
             f"- xref {font['xref']} | {font['font_name']} | typeface: {font['typeface']} | "
             f"Type: {font['font_type']} | Encoding: {font['encoding']} | "
-            f"resolved via: {font['resolved_via']} | Pages: {font['pages_used']}"
+            f"source: {font['source']} | resolved via: {font['resolved_via']} | "
+            f"Pages: {font['pages_used']}"
         )
 
     print("\nDistinct typefaces:")
