@@ -14,7 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import AppShell from "./components/app-shell";
 import NavLink from "./components/nav-link";
-import { API_URL, docVerdict, formatWhen } from "./lib/format";
+import { API_URL, authenticityPercent, docVerdict, formatWhen } from "./lib/format";
 import { useSession } from "./lib/session";
 import type { Batch, BatchSummary, Job } from "./lib/types";
 
@@ -25,15 +25,6 @@ type RecentDocument = {
   job: Job;
   createdAt: string;
 };
-
-function scoreFor(job: Job) {
-  const results = Object.values(job.results);
-  if (!results.length) return job.status === "completed" ? 0 : null;
-  const review = results.filter((result) => result.outcome === "review").length;
-  const errors = results.filter((result) => result.outcome === "error").length;
-  const clear = results.filter((result) => result.outcome === "clear").length;
-  return Math.max(0, Math.min(100, Math.round(((clear + (results.length - review - errors) * 0.5) / results.length) * 100)));
-}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -169,7 +160,10 @@ export default function DashboardPage() {
             <span>Flagged</span>
             <Flag aria-hidden="true" />
             <strong>{metrics.flagged.toLocaleString()}</strong>
-            <small>{reviewQueue.length ? `${reviewQueue.length} ready for review` : "Queue is clear"}</small>
+            {/* The review queue only holds the most recent handful of documents, so
+                counting it here would report "4 ready for review" under a total of
+                222. Mirror the Clean card and describe the whole flagged set. */}
+            <small>{metrics.flagged ? `${Math.round((metrics.flagged / metrics.screened) * 100)}% of total` : "Queue is clear"}</small>
           </article>
           <article>
             <span>Processing</span>
@@ -204,7 +198,7 @@ export default function DashboardPage() {
             <div className="dashboard-rows">
               {visibleRows.map(({ batchId, job, createdAt }) => {
                 const verdict = docVerdict(job);
-                const score = scoreFor(job);
+                const score = authenticityPercent(job);
                 return (
                   <NavLink href={`/batches/${batchId}/documents/${job.id}`} className="dashboard-row" key={job.id}>
                     <span className="dashboard-document"><i><FileText aria-hidden="true" /></i><strong>{job.filename}</strong></span>
