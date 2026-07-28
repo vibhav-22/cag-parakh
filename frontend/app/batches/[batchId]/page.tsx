@@ -246,7 +246,10 @@ export default function BatchPage() {
           <dl className="bsb-stats">
             <div><dt>Documents</dt><dd>{batch.document_count}</dd></div>
             <div className="bsb-clean"><dt>Clean</dt><dd>{stats.cleanDocs}</dd></div>
-            <div className="bsb-flagged"><dt>Flagged</dt><dd>{stats.flaggedDocs}</dd></div>
+            {/* This bucket is the "danger" tone, which docVerdict assigns when checks
+                could not complete — not the flagged set. Labelling it "Flagged" put a
+                0 next to prose and history cards reading "4 flagged" for the same batch. */}
+            <div className="bsb-flagged"><dt>Check errors</dt><dd>{stats.flaggedDocs}</dd></div>
             <div className="bsb-review"><dt>Review</dt><dd>{stats.reviewDocs}</dd></div>
           </dl>
           <div className="bt-track" aria-label={`${stats.percent}% complete`}>
@@ -342,7 +345,7 @@ export default function BatchPage() {
             <div className="matrix-filter-row">
               <div className="matrix-filter-tabs" role="tablist" aria-label="Filter documents">
                 <button type="button" role="tab" aria-selected={activeTab === "all"} className={activeTab === "all" ? "active" : ""} onClick={() => setActiveTab("all")}>All <b>{batch.document_count}</b></button>
-                <button type="button" role="tab" aria-selected={activeTab === "flagged"} className={activeTab === "flagged" ? "active" : ""} onClick={() => setActiveTab("flagged")}>Flagged <b>{stats.flaggedDocs}</b></button>
+                <button type="button" role="tab" aria-selected={activeTab === "flagged"} className={activeTab === "flagged" ? "active" : ""} onClick={() => setActiveTab("flagged")}>Check errors <b>{stats.flaggedDocs}</b></button>
                 <button type="button" role="tab" aria-selected={activeTab === "review"} className={activeTab === "review" ? "active" : ""} onClick={() => setActiveTab("review")}>Needs review <b>{stats.reviewDocs}</b></button>
                 <button type="button" role="tab" aria-selected={activeTab === "clean"} className={activeTab === "clean" ? "active" : ""} onClick={() => setActiveTab("clean")}>Clean <b>{stats.cleanDocs}</b></button>
               </div>
