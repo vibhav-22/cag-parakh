@@ -72,6 +72,15 @@
   --route-pad: 28px;
 }
 
+.app[data-route="projects"] {
+  --route-canvas: #0e0e17;
+  --route-surface: #14141e;
+  --route-panel: #191923;
+  --route-line: #23232f;
+  --route-max: 1080px;
+  --route-pad: 28px;
+}
+
 .app[data-route="reports"] {
   --route-canvas: #dceaf9;
   --route-surface: #ffffff;

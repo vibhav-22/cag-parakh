@@ -15,12 +15,15 @@ const paths = {
   shell: "../app/components/app-shell.tsx",
   rail: "../app/components/nav-rail.tsx",
   session: "../app/lib/session.tsx",
+  graceBanner: "../app/components/grace-banner.tsx",
   format: "../app/lib/format.ts",
   profiles: "../app/lib/profiles.ts",
   useBatch: "../app/lib/use-batch.ts",
   newRoute: "../app/new/page.tsx",
   ask: "../app/ask/page.tsx",
   history: "../app/history/page.tsx",
+  projects: "../app/projects/page.tsx",
+  project: "../app/projects/[projectId]/page.tsx",
   reports: "../app/reports/page.tsx",
   settings: "../app/settings/page.tsx",
   batch: "../app/batches/[batchId]/page.tsx",
@@ -32,6 +35,7 @@ const ROUTES = [
   ["new", paths.newRoute],
   ["ask", paths.ask],
   ["history", paths.history],
+  ["projects", paths.projects],
   ["reports", paths.reports],
   ["settings", paths.settings],
   ["batches", paths.batch],
@@ -49,7 +53,7 @@ test("keeps explicit loading, empty, error, and long-content states", async () =
   ]);
 
   assert.match(document, /analysis-loading/);
-  assert.match(controlPanel, /Investigation preset|preset-options/);
+  assert.match(controlPanel, /Choose the checks/);
   assert.match(home, /dashboard-state/, "the dashboard must name its loading, empty, and error states");
   assert.match(home, /Recent screenings/, "the landing route must present the operational dashboard");
   assert.match(session, /Checking access/, "the access gate must state what it is doing");
@@ -59,6 +63,51 @@ test("keeps explicit loading, empty, error, and long-content states", async () =
   assert.match(css, /max-height: 340px/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(history, /No cases yet/i, "an empty case list must say so rather than vanish");
+});
+
+test("session failures always fail closed", async () => {
+  const session = await read(paths.session);
+
+  assert.match(session, /Invalid session response/);
+  // The first probe decides whether the sign-in card renders, so a failure
+  // there must fall back to "not authenticated" rather than assume access.
+  assert.match(
+    session,
+    /catch\(\(\) => \{ if \(active\) setSession\(\{ required: true, authenticated: false \}\); \}\)/,
+    "a failed initial session probe must fail closed",
+  );
+  // No error path may ever hand out an authenticated session.
+  assert.doesNotMatch(session, /catch[\s\S]{0,160}authenticated: true/);
+});
+
+test("the session poll refreshes access state without signing anyone out", async () => {
+  const session = await read(paths.session);
+
+  // Access is enforced by the backend on every request, so this poll is chrome
+  // only. A blip talking to the local screening service must leave the session
+  // state alone instead of dropping the user back to the sign-in card.
+  assert.match(
+    session,
+    /\.catch\(\(\) => undefined\)/,
+    "a failed session poll must leave the existing session untouched",
+  );
+});
+
+test("warns before offline access runs out", async () => {
+  const [banner, shell, session, css] = await Promise.all([
+    read(paths.graceBanner),
+    read(paths.shell),
+    read(paths.session),
+    read(paths.css),
+  ]);
+
+  assert.match(shell, /<GraceBanner \/>/, "the offline warning must render on every gated route");
+  assert.match(banner, /grace_seconds_remaining/, "the warning must say how much time is left");
+  assert.match(banner, /role=\{urgent \? "alert" : "status"\}/, "urgency must reach screen readers");
+  assert.match(css, /\.grace-banner\.urgent/, "the warning must escalate visually near the end");
+  // A clock-triggered lockout otherwise looks like the app losing the session
+  // at random, with no route to recovery.
+  assert.match(session, /clock_tampered/, "a clock lockout must explain itself on the sign-in card");
 });
 
 test("labels the whitener detector and keeps raw output behind a disclosure", async () => {
@@ -76,7 +125,7 @@ test("shows every extracted document photo inside its result", async () => {
     read(paths.caseCss),
   ]);
 
-  assert.match(format, /Document Photo/);
+  assert.match(format, /Photo Extraction/);
   assert.match(await read(paths.advancedSettings), /photo_detection/);
   assert.match(document, /detectedPhotos/);
   assert.match(document, /detected-photos/);
@@ -268,7 +317,7 @@ test("the surface ladder gives each route a different depth", async () => {
 });
 
 test("route stylesheets stay scoped so they cannot collide", async () => {
-  const sheets = ["home", "new", "ask", "history", "settings", "case"];
+  const sheets = ["home", "new", "ask", "history", "projects", "settings", "case"];
   for (const sheet of sheets) {
     const source = await read(`../app/styles/${sheet}.css`);
     const rules = source
@@ -460,12 +509,12 @@ test("a screening test can be created, used, and reused", async () => {
 
   assert.match(profiles, /PROFILES_STORAGE_KEY = "parakh-screening-profiles"/, "profiles need their own storage key");
   assert.doesNotMatch(profiles, /setItem\(\s*"parakh-analysis-settings"|getItem\(\s*"parakh-analysis-settings"/, "profiles must not read or write the saved-defaults key");
-  assert.match(controlPanel, /applyProfile/, "/new must be able to use a saved test");
-  assert.match(controlPanel, /Create a test from this setup|Save current setup as a new test/, "/new must be able to create a test");
-  assert.match(controlPanel, /Name the test/, "creating a test must name it");
-  assert.match(controlPanel, /Goal/, "a test must define a goal");
-  assert.match(controlPanel, /Decision rule/, "a test must define a decision rule");
-  assert.match(settings, /Screening tests/, "/settings must manage the test library");
+  assert.match(controlPanel, /applyProfile/, "/new must be able to use a saved preset");
+  assert.match(controlPanel, /Create a preset from this setup|Save current setup as a new preset/, "/new must be able to create a preset");
+  assert.match(controlPanel, /Name the preset/, "creating a preset must name it");
+  assert.match(controlPanel, /Goal/, "a preset must define a goal");
+  assert.match(controlPanel, /Decision rule/, "a preset must define a decision rule");
+  assert.match(settings, /Presets/, "/settings must manage the preset library");
 });
 
 test("the screening test rides the run into the workspace and the report", async () => {
@@ -482,9 +531,37 @@ test("the screening test rides the run into the workspace and the report", async
   assert.match(reporting, /Decision rule/, "the exported report must carry the decision rule");
 });
 
+// A project is a folder for screening runs. These assertions hold the
+// feature to its two claims: a run started inside a project belongs to it,
+// and a project is reachable at its own URL.
+test("a project groups screening runs and can start a new one", async () => {
+  const [rail, projects, project, newRoute, controlPanel] = await Promise.all([
+    read(paths.rail),
+    read(paths.projects),
+    read(paths.project),
+    read(paths.newRoute),
+    read(paths.controlPanel),
+  ]);
+
+  assert.match(rail, /href: "\/projects"/, "projects must be reachable from primary navigation");
+  assert.match(projects, /api\/v1\/projects/, "the project list must come from the stored projects");
+  assert.match(projects, /No projects yet/i, "an empty project list must say so");
+  assert.match(project, /route="projects"/, "the project detail route must get its own surface");
+  assert.match(project, /chrome="rail"/, "the project detail route keeps the primary navigation rail");
+  assert.match(project, /useParams/, "the project id comes from the URL");
+  assert.match(project, /not on this device/, "an unknown project must explain why, like an unknown batch");
+  assert.match(project, /New test/, "a project must offer to start a run inside it");
+  assert.match(project, /\/new\?project=\$\{/, "New test must carry the project into /new");
+  assert.match(project, /stay in your Batches library/, "deleting a project must promise its runs are not deleted");
+  assert.match(newRoute, /URLSearchParams/, "/new must read the project id without useSearchParams (Suspense risk under vinext)");
+  assert.match(controlPanel, /body\.append\("project_id"/, "a filed run must carry its project id to the backend");
+  assert.match(controlPanel, /Filing into/, "a run started inside a project must show which one");
+});
+
 test("navigation never imports next/link", async () => {
   const sources = await Promise.all([
     ...ROUTES.map(([, path]) => read(path)),
+    read(paths.project),
     read(paths.shell),
     read(paths.rail),
     read(paths.controlPanel),

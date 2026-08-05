@@ -871,7 +871,7 @@ export default function DocumentPage() {
                       applied to every document in the test. */}
                   {job.profile && (
                     <div className="decision-rule" role="note">
-                      <div className="dr-head"><span className="dr-eyebrow">Screening test</span><strong>{job.profile.name}</strong></div>
+                      <div className="dr-head"><span className="dr-eyebrow">Preset</span><strong>{job.profile.name}</strong></div>
                       {job.profile.goal && <p className="dr-goal">{job.profile.goal}</p>}
                       {job.profile.guidance && <p className="dr-guidance"><span>Decision rule</span>{job.profile.guidance}</p>}
                     </div>

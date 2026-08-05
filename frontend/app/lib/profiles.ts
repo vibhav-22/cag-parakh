@@ -58,10 +58,10 @@ function coerceSettings(value: unknown): AnalysisSettings {
   return {
     metadata: { ...DEFAULT_ANALYSIS_SETTINGS.metadata, ...partial.metadata },
     qr_presence: { ...DEFAULT_ANALYSIS_SETTINGS.qr_presence, ...partial.qr_presence },
-    scanner_noise: { ...DEFAULT_ANALYSIS_SETTINGS.scanner_noise, ...partial.scanner_noise },
     same_phone: { ...DEFAULT_ANALYSIS_SETTINGS.same_phone, ...partial.same_phone },
     tamper_scan: { ...DEFAULT_ANALYSIS_SETTINGS.tamper_scan, ...partial.tamper_scan },
     readability: { ...DEFAULT_ANALYSIS_SETTINGS.readability, ...partial.readability },
+    photo_detection: { ...DEFAULT_ANALYSIS_SETTINGS.photo_detection, ...partial.photo_detection },
   };
 }
 
@@ -132,7 +132,7 @@ export function saveProfile(input: {
   const existing = input.id ? profiles.find((item) => item.id === input.id) : undefined;
   const profile: ScreeningProfile = {
     id: existing?.id || input.id || newId(),
-    name: input.name.trim().slice(0, MAX_PROFILE_NAME) || "Untitled test",
+    name: input.name.trim().slice(0, MAX_PROFILE_NAME) || "Untitled preset",
     goal: input.goal.trim().slice(0, MAX_PROFILE_GOAL),
     guidance: input.guidance.trim().slice(0, MAX_PROFILE_GUIDANCE),
     analyzers: [...input.analyzers],

@@ -235,27 +235,55 @@ def _font_names(items: Any) -> list[str]:
     return sorted(dict.fromkeys(names))
 
 
+def _split_font_objects(objects: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition font objects into ones stored in the file and ones only named."""
+
+    embedded: list[dict[str, Any]] = []
+    referenced: list[dict[str, Any]] = []
+    has_embedding_flags = any(
+        isinstance(item, dict) and "embedded" in item for item in objects
+    )
+    for item in objects:
+        if not isinstance(item, dict):
+            continue
+        if has_embedding_flags:
+            is_embedded = item.get("embedded") is True
+        else:
+            # Legacy PyMuPDF output: Base-14 references have xref 0 and
+            # extension "n/a"; no font program is stored in the PDF.
+            extension = str(item.get("extension") or "").strip().lower()
+            is_embedded = _count(item.get("xref")) > 0 and extension not in {"", "n/a", "none"}
+        (embedded if is_embedded else referenced).append(item)
+    return embedded, referenced
+
+
+def embedded_font_groups(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """The embedded fonts as records, so a caller can read `pages_used`.
+
+    `font_inventory` answers "which fonts", which is what a document-level
+    verdict needs. Anything reporting page by page needs the records themselves,
+    and must not re-derive "embedded" with a second, subtly different rule.
+
+    `embedded_typefaces` is preferred because it is grouped the same way the
+    document-level count is — one entry per distinct typeface, not one per font
+    object — so a page total and the document total are counting the same thing.
+    """
+
+    groups = raw.get("embedded_typefaces")
+    if isinstance(groups, list) and groups:
+        return [group for group in groups if isinstance(group, dict)]
+    objects = raw.get("unique_fonts")
+    if isinstance(objects, list) and objects:
+        return _split_font_objects(objects)[0]
+    return []
+
+
 def font_inventory(raw: dict[str, Any]) -> tuple[list[str], list[str], int]:
     """Split stored font files from reader-supplied font references."""
 
     objects = raw.get("unique_fonts") if isinstance(raw.get("unique_fonts"), list) else []
-    embedded: list[Any] = []
-    referenced: list[Any] = []
-    has_embedding_flags = any(
-        isinstance(item, dict) and "embedded" in item for item in objects
-    )
     if objects:
-        for item in objects:
-            if not isinstance(item, dict):
-                continue
-            if has_embedding_flags:
-                is_embedded = item.get("embedded") is True
-            else:
-                # Legacy PyMuPDF output: Base-14 references have xref 0 and
-                # extension "n/a"; no font program is stored in the PDF.
-                extension = str(item.get("extension") or "").strip().lower()
-                is_embedded = _count(item.get("xref")) > 0 and extension not in {"", "n/a", "none"}
-            (embedded if is_embedded else referenced).append(item)
+        embedded, referenced = _split_font_objects(objects)
         return _font_names(embedded), _font_names(referenced), len(embedded)
 
     explicit_embedded = raw.get("embedded_typefaces")
@@ -373,13 +401,35 @@ def _check_photo_detection(raw: dict[str, Any]) -> CheckVerdict:
             "The photo detector returned no presence result for this document, so it "
             "cannot be said whether a photo is present.",
         )
+    effort = _text(raw, "search_effort").strip().lower()
     if not found:
+        # What "none found" is worth depends entirely on how hard the search
+        # looked. At low effort the page was never rendered, so this is a
+        # statement about the search, not about the document — the same
+        # distinction the QR check draws.
+        coverage = {
+            "low": (
+                "Only the images already embedded in the file were examined; the pages "
+                "themselves were never rendered, so a photo printed into the page scan "
+                "would not have been found. Raise photo search effort to rule that out."
+            ),
+            "medium": (
+                "The embedded images were examined, then every page was rendered and "
+                "swept, and no passport-style photograph was located."
+            ),
+            "high": (
+                "Every page was rendered at high resolution and swept densely at a "
+                "lowered confidence floor, and no passport-style photograph was located."
+            ),
+        }.get(effort, "The detector searched every page and located no passport-style photograph.")
         return CheckVerdict(
-            FAIL,
+            INCONCLUSIVE if effort == "low" else FAIL,
             criterion,
-            "No document photo was found. The detector searched every page and located "
-            "no passport-style photograph.",
-            _facts(("Photos found", 0)),
+            f"No document photo was found. {coverage}",
+            _facts(
+                ("Photos found", 0),
+                ("Search effort", effort.title() if effort else None),
+            ),
         )
 
     count = count or 1
@@ -398,6 +448,9 @@ def _check_photo_detection(raw: dict[str, Any]) -> CheckVerdict:
             ("Face confidence", f"{_number(raw.get('face_confidence')):.0%}" if raw.get("face_confidence") else None),
             ("Blur score", raw.get("blur")),
             ("Brightness", raw.get("brightness")),
+            # How hard this run looked. A count of 1 at low effort and a count
+            # of 1 at high effort are not the same claim about the document.
+            ("Search effort", effort.title() if effort else None),
         ),
     )
 
@@ -412,9 +465,13 @@ def _check_qr_presence(raw: dict[str, Any]) -> CheckVerdict:
     )
     count = _count(raw.get("qr_count"))
     hits = raw.get("hits") if isinstance(raw.get("hits"), list) else []
+    # The scanner's field is `payload` (see QRHit in tools/qr_analysis/
+    # qr_local_lib.py, serialized by `hits_to_dicts`). This read `data` only,
+    # so the decoded text never reached the report even when a code was found.
+    # `data` is still accepted for results stored under the older key.
     payloads = [
-        str(hit.get("data"))[:120] for hit in hits
-        if isinstance(hit, dict) and hit.get("data")
+        str(hit.get("payload") or hit.get("data"))[:120] for hit in hits
+        if isinstance(hit, dict) and (hit.get("payload") or hit.get("data"))
     ]
     pages = sorted({_count(hit.get("page")) for hit in hits if isinstance(hit, dict) and hit.get("page")})
 
@@ -430,15 +487,60 @@ def _check_qr_presence(raw: dict[str, Any]) -> CheckVerdict:
                 ("Decoded payloads", payloads[:5]),
             ),
         )
+    # What "none found" is worth depends entirely on how hard the scan looked.
+    # A miss at low effort is a document that was not searched thoroughly; a
+    # miss at high effort is a document that very likely carries no code. The
+    # reason has to say which, or the same sentence means two different things.
+    effort = _text(raw, "search_effort").strip().lower()
+    incomplete = _text(raw, "deep_rescan_incomplete").strip().lower()
+    if incomplete:
+        # The wide sweep was cut short, so absence was never established. This
+        # is inconclusive, not a fail: reporting "no QR code" here would be
+        # describing the search, not the document.
+        detail = (
+            "ran out of time" if incomplete == "timeout" else "could not be completed"
+        )
+        return CheckVerdict(
+            INCONCLUSIVE,
+            criterion,
+            f"No QR code was decoded, but the wider search {detail}, so it is not "
+            "established that this document carries none. Re-run this check, or "
+            "raise QR search effort, before treating it as having no QR code.",
+            _facts(
+                ("QR codes found", count),
+                ("Required", minimum),
+                ("Search effort", effort.title() if effort else None),
+                ("Wider search", detail.capitalize()),
+            ),
+        )
+    coverage = {
+        "low": (
+            "The scan covered every page at a single resolution and the configured "
+            "rotations. A code needing another resolution or angle would not have "
+            "been found — raise QR search effort to rule that out."
+        ),
+        "medium": (
+            "The scan covered every page, then widened to a resolution ladder built "
+            "from this document's own scan resolution and all four rotations, and "
+            "still decoded nothing."
+        ),
+        "high": (
+            "The scan covered every page across a wide resolution ladder and all "
+            "four rotations, and still decoded nothing."
+        ),
+    }.get(effort, "The scan covered every page at the configured resolution and rotations.")
+    shortfall = (
+        f" Found {count}, below the {minimum} required." if minimum > 1 else ""
+    )
     return CheckVerdict(
         FAIL,
         criterion,
-        f"No QR code was decoded. The scan covered every page at the configured "
-        f"resolution and rotations and found {count}, below the {minimum} required."
-        if minimum > 1 else
-        "No QR code was decoded. The scan covered every page at the configured "
-        "resolution and rotations and found none.",
-        _facts(("QR codes found", count), ("Required", minimum)),
+        f"No QR code was decoded. {coverage}{shortfall}",
+        _facts(
+            ("QR codes found", count),
+            ("Required", minimum),
+            ("Search effort", effort.title() if effort else None),
+        ),
     )
 
 
@@ -549,71 +651,6 @@ def _check_moire(raw: dict[str, Any]) -> CheckVerdict:
         criterion,
         f"The frequency analysis could not reach a conclusion because {detail}. "
         "A recapture pattern can neither be confirmed nor ruled out for this image.",
-        facts,
-    )
-
-
-# ── scanner noise ─────────────────────────────────────────────────────────────
-
-def _check_scanner_noise(raw: dict[str, Any]) -> CheckVerdict:
-    criterion = (
-        "Passes when every page shares one capture fingerprint. Fails when a page or "
-        "region carries a different one."
-    )
-    summary = raw.get("summary") if isinstance(raw.get("summary"), dict) else {}
-    risk = str(summary.get("overall_risk") or raw.get("risk") or "").lower()
-    pages = _count(summary.get("pages_analyzed"))
-    suspicious_pages = _count(summary.get("suspicious_pages"))
-    suspicious_regions = _count(summary.get("suspicious_regions"))
-    reasons = summary.get("reasons") if isinstance(summary.get("reasons"), list) else []
-    facts = _facts(
-        ("Pages analysed", pages or None),
-        ("Suspicious pages", suspicious_pages),
-        ("Suspicious regions", suspicious_regions),
-        ("Overall risk", risk.title() if risk else None),
-    )
-
-    if raw.get("source_consistency_possible") is False:
-        # The detector's own report says a single page cannot be tested for
-        # cross-page consistency, and downgrades any local finding on one page to
-        # "a review hint, not a source mismatch". Grading that as a cross would
-        # report a failure the detector explicitly declined to claim.
-        hint = (
-            f" {suspicious_regions} local region"
-            f"{'' if suspicious_regions == 1 else 's'} on the page did look different "
-            "from its surroundings, which on a single page is a hint to look, not a "
-            "finding."
-            if suspicious_regions else ""
-        )
-        return CheckVerdict(
-            INCONCLUSIVE,
-            criterion,
-            "Only one page was analysed. Cross-page capture consistency needs at least "
-            "two pages to compare, so this check could not reach a conclusion." + hint,
-            facts,
-        )
-    if not risk:
-        return CheckVerdict(
-            INCONCLUSIVE,
-            criterion,
-            "The scanner-noise report carried no overall risk reading, so no conclusion "
-            "could be drawn.",
-            facts,
-        )
-    if risk in {"medium", "high"}:
-        detail = str(reasons[0]) if reasons else "capture characteristics differ across the document"
-        return CheckVerdict(
-            FAIL,
-            criterion,
-            f"Capture fingerprints do not match across this document: {detail} "
-            f"({suspicious_pages} page(s) and {suspicious_regions} region(s) flagged).",
-            facts,
-        )
-    return CheckVerdict(
-        PASS,
-        criterion,
-        f"All {pages or 'analysed'} page(s) share one capture fingerprint, with no page "
-        "or region standing out.",
         facts,
     )
 
@@ -736,7 +773,6 @@ EVALUATORS: dict[str, Callable[[dict[str, Any]], CheckVerdict]] = {
     "qr_presence": _check_qr_presence,
     "tamper_scan": _check_tamper_scan,
     "moire": _check_moire,
-    "scanner_noise": _check_scanner_noise,
     "same_phone": _check_same_phone,
     "readability": _check_readability,
 }

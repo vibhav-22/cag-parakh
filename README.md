@@ -50,19 +50,20 @@ python -m uvicorn backend.app:app --reload
 
 Model weights are not committed to or bundled with this repository. A software installer can either deliver a separately licensed offline model pack or download the pinned model automatically on first use. See `backend/README.md` and `backend/.env.example` for configuration and privacy controls.
 
-## Demo mode (shared access code + batches)
+## Local analysis with approved accounts
 
-The web app supports multi-document batches, a results matrix, stored history, and an access-code sign-in:
+The web app supports multi-document batches, stored history, individual accounts, and per-laptop approval. Documents and detector work remain local; only account and device authorization use the central service.
 
 ```powershell
-# Backend with sign-in enabled (pick your own code):
-$env:ACCESS_CODE = "your-code"; python -m uvicorn backend.app:app
+# Backend connected to the authorization service:
+$env:PARAKH_AUTH_URL = "https://accounts.example.com"
+python -m uvicorn backend.app:app --host 127.0.0.1
 
-# Frontend (proxies /api to the backend so the auth cookie works):
+# Frontend:
 cd frontend; npm run dev
 ```
 
-Open `http://localhost:3000`, sign in with the code, and drop up to 50 PDFs or images at once. Each batch is kept in `backend/data` and reappears under "Recent batches" after restarts.
+Open `http://localhost:3000`, sign in with an approved account, and drop up to 50 PDFs or images at once. Development remains open when `PARAKH_AUTH_URL` and `PARAKH_PACKAGED` are unset. Installed builds set `PARAKH_PACKAGED=1` and fail closed unless an authorization service is configured. See `license_server/README.md` for setup and account management.
 
 ## Extract fonts from a PDF
 

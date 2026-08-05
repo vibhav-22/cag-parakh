@@ -274,25 +274,6 @@ class NormalizeAnalyzerResultTests(unittest.TestCase):
         self.assertAlmostEqual(result.regions[0].x, 0.05)
         self.assertAlmostEqual(result.regions[0].y, 0.075)
 
-    def test_normalizes_scanner_noise_region(self) -> None:
-        result = normalize_analyzer_result(
-            "scanner_noise",
-            {
-                "summary": {"overall_risk": "high"},
-                "suspicious_regions": [{
-                    "page": 2,
-                    "severity": "high",
-                    "reason": "Noise profile differs.",
-                    "bbox_normalized": {"x0": 0.1, "y0": 0.2, "x1": 0.4, "y1": 0.5},
-                }],
-            },
-        )
-
-        self.assertEqual(len(result.regions), 1)
-        self.assertEqual(result.regions[0].page, 2)
-        self.assertAlmostEqual(result.regions[0].width, 0.3)
-        self.assertEqual(result.regions[0].severity, RiskLevel.HIGH)
-
     def test_a_found_photo_passes_even_when_its_quality_needs_a_look(self) -> None:
         result = normalize_analyzer_result(
             "photo_detection",

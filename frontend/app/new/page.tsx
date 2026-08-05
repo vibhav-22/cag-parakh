@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppShell from "../components/app-shell";
 import RouteHeader from "../components/route-header";
 import ControlPanel, { type SetupProgress } from "../components/control-panel";
@@ -43,6 +43,14 @@ function StepIndicator({ progress }: { progress: SetupProgress }) {
 
 export default function NewReviewPage() {
   const [progress, setProgress] = useState<SetupProgress>({ files: 0, checks: 0, analyzers: 0 });
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  // Read once on mount. `useSearchParams` would force this route into a
+  // Suspense boundary for a value that only ever seeds the form, and it is
+  // unverified whether that builds cleanly under this app's vinext runtime.
+  useEffect(() => {
+    setProjectId(new URLSearchParams(window.location.search).get("project"));
+  }, []);
 
   return (
     <AppShell
@@ -57,7 +65,7 @@ export default function NewReviewPage() {
         />
       }
     >
-      <ControlPanel onProgress={setProgress} />
+      <ControlPanel projectId={projectId} onProgress={setProgress} />
     </AppShell>
   );
 }

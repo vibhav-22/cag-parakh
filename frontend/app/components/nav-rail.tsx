@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   ChartLineUp,
   ChatCenteredText,
+  FolderOpen,
   GearSix,
   Scan,
   SquaresFour,
@@ -24,6 +25,12 @@ const ITEMS = [
     label: "New Screening",
     match: (path: string) => path === "/new",
     icon: <Scan aria-hidden="true" weight="regular" />,
+  },
+  {
+    href: "/projects",
+    label: "Projects",
+    match: (path: string) => path === "/projects" || path.startsWith("/projects/"),
+    icon: <FolderOpen aria-hidden="true" weight="regular" />,
   },
   // The case library and the batch matrix are one concept, not two. /history
   // is the list; /batches/[id] is a case opened from it. A second rail row

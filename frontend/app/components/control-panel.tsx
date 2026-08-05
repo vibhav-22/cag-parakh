@@ -23,7 +23,7 @@ import {
   listProfiles,
   saveProfile,
 } from "../lib/profiles";
-import type { Analyzer, Batch, PreflightReport } from "../lib/types";
+import type { Analyzer, Batch, PreflightReport, Project } from "../lib/types";
 
 /**
  * The body of the /new route: upload, presets, check selection, and the
@@ -42,7 +42,13 @@ function isSupportedDocument(file: File) {
   return SUPPORTED_DOCUMENT_EXTENSIONS.some((extension) => name.endsWith(extension));
 }
 
-export default function ControlPanel({ onProgress }: { onProgress?: (progress: SetupProgress) => void }) {
+export default function ControlPanel({
+  projectId,
+  onProgress,
+}: {
+  projectId?: string | null;
+  onProgress?: (progress: SetupProgress) => void;
+}) {
   const router = useRouter();
   const { handleUnauthorized, setServiceStatus } = useSession();
   const [analyzers, setAnalyzers] = useState<Analyzer[]>([]);
@@ -69,6 +75,20 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
   const [profileNotice, setProfileNotice] = useState("");
 
   useEffect(() => { setProfiles(listProfiles()); }, []);
+
+  // The project this run files into, carried in from /new?project=<id>. A
+  // stale or deleted id simply resolves to no chip — the run then files as
+  // unfiled instead of failing at submit.
+  const [project, setProject] = useState<Project | null>(null);
+  useEffect(() => {
+    if (!projectId) { setProject(null); return; }
+    let cancelled = false;
+    fetch(`${API_URL}/api/v1/projects/${projectId}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: Project | null) => { if (!cancelled) setProject(payload); })
+      .catch(() => { if (!cancelled) setProject(null); });
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   // Deliberately no persistence here. These are per-run overrides for THIS
   // batch, seeded from the saved defaults and never written back — which is
@@ -150,6 +170,7 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
     for (const item of submittable) body.append("files", item);
     body.append("settings", JSON.stringify(analysisSettings));
     if (batchName.trim()) body.append("batch_name", batchName.trim());
+    if (project) body.append("project_id", project.id);
     if (activeProfile) {
       // Stamp the test onto the run: id, name, goal, and the reviewer's written
       // decision rule. Not the settings — those already ride on the request
@@ -202,13 +223,6 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
     setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  function applyPreset(preset: "quick" | "standard" | "deep") {
-    const available = analyzers.filter((item) => item.available !== false);
-    if (preset === "deep") setSelected(available.map((item) => item.id));
-    else if (preset === "quick") setSelected(available.slice(0, Math.min(3, available.length)).map((item) => item.id));
-    else setSelected(available.slice(0, Math.max(1, Math.ceil(available.length * 0.65))).map((item) => item.id));
-  }
-
   // Use a saved profile: apply its checks and thresholds, and mark the run as
   // running under it. Checks the profile names that this backend no longer
   // offers are dropped rather than sent and rejected.
@@ -221,7 +235,7 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
     setProfileForm(null);
     setProfileNotice(usable.length === profile.analyzers.length
       ? ""
-      : "Some checks saved in this test are not available here and were left off.");
+      : "Some checks saved in this preset are not available here and were left off.");
   }
 
   function clearProfile() {
@@ -240,7 +254,7 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
 
   function commitProfile() {
     if (!profileForm || !profileForm.name.trim()) {
-      setProfileNotice("Give the test a name before saving it.");
+      setProfileNotice("Give the preset a name before saving it.");
       return;
     }
     const saved = saveProfile({
@@ -252,7 +266,7 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
       settings: analysisSettings,
     });
     if (!saved) {
-      setProfileNotice("This browser is blocking local storage, so the test could not be saved.");
+      setProfileNotice("This browser is blocking local storage, so the preset could not be saved.");
       return;
     }
     setProfiles(listProfiles());
@@ -274,102 +288,7 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
 
   return (
     <form className="setup-form" aria-label="New document review" onSubmit={submit}>
-      <section className="setup-block profile-block" aria-labelledby="setup-profile">
-        <div className="setup-block-head">
-          <span className="setup-ordinal" aria-hidden="true">★</span>
-          <div>
-            <h2 id="setup-profile">Screening test</h2>
-            <p>Reuse a saved test, or run an ad-hoc screening. A test names a goal and a decision rule and applies the same checks every time.</p>
-          </div>
-        </div>
-
-        <div className="profile-bar">
-          <label className="profile-picker">
-            <span className="sr-only">Choose a saved screening test</span>
-            <select
-              value={activeProfile?.id || ""}
-              onChange={(event) => {
-                const chosen = profiles.find((item) => item.id === event.target.value);
-                if (chosen) applyProfile(chosen);
-                else clearProfile();
-              }}
-            >
-              <option value="">Ad-hoc screening (no test)</option>
-              {profiles.map((profile) => (
-                <option value={profile.id} key={profile.id}>{profile.name}</option>
-              ))}
-            </select>
-          </label>
-          {profileForm === null && (
-            <button type="button" className="text-button" onClick={startNewProfile}>
-              {activeProfile ? "Save current setup as a new test" : "Create a test from this setup"}
-            </button>
-          )}
-        </div>
-
-        {activeProfile && profileForm === null && (
-          <div className={`profile-active ${profileModified ? "modified" : ""}`} role="note">
-            <div className="profile-active-head">
-              <strong>{activeProfile.name}</strong>
-              {profileModified && <span className="profile-tag">Modified for this run</span>}
-              <button type="button" className="text-button" onClick={() => setProfileForm({ name: activeProfile.name, goal: activeProfile.goal, guidance: activeProfile.guidance })}>Edit</button>
-            </div>
-            {activeProfile.goal && <p className="profile-goal">{activeProfile.goal}</p>}
-            {activeProfile.guidance && (
-              <p className="profile-guidance"><span>Decision rule</span>{activeProfile.guidance}</p>
-            )}
-          </div>
-        )}
-
-        {profileForm !== null && (
-          <div className="profile-form">
-            <label>
-              <span>Name the test <b aria-hidden="true">*</b></span>
-              <input
-                value={profileForm.name}
-                maxLength={MAX_PROFILE_NAME}
-                placeholder="e.g. Birth certificate — full screening"
-                onChange={(event) => setProfileForm((form) => form && { ...form, name: event.target.value })}
-              />
-            </label>
-            <label>
-              <span>Goal <small>What is this test for?</small></span>
-              <textarea
-                value={profileForm.goal}
-                maxLength={MAX_PROFILE_GOAL}
-                rows={2}
-                placeholder="Confirm a scanned birth certificate is an authentic original before it is accepted."
-                onChange={(event) => setProfileForm((form) => form && { ...form, goal: event.target.value })}
-              />
-            </label>
-            <label>
-              <span>Decision rule <small>How should the reviewer decide?</small></span>
-              <textarea
-                value={profileForm.guidance}
-                maxLength={MAX_PROFILE_GUIDANCE}
-                rows={3}
-                placeholder="Flag if the QR is missing or whitener probability exceeds 40%. Always verify the certificate number against the issuing portal before verifying."
-                onChange={(event) => setProfileForm((form) => form && { ...form, guidance: event.target.value })}
-              />
-            </label>
-            <p className="profile-form-note">
-              This test captures the {selected.length} check{selected.length === 1 ? "" : "s"} and
-              thresholds selected below. It is saved on this device only. What earns each check a
-              tick is fixed by the check itself and is listed under &ldquo;Choose the checks&rdquo;.
-            </p>
-            <div className="profile-form-actions">
-              <button type="button" className="text-button" onClick={() => { setProfileForm(null); setProfileNotice(""); }}>Cancel</button>
-              <button type="button" className="secondary-button" onClick={commitProfile}>
-                {activeProfile && activeProfile.name === profileForm.name ? "Update test" : "Save test"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {profileNotice && <p className="profile-notice" role="status">{profileNotice}</p>}
-      </section>
-
-      <section className="setup-block" aria-labelledby="setup-documents">
+      <section className="setup-block documents-block" aria-labelledby="setup-documents">
         <div className="setup-block-head">
           <span className="setup-ordinal" aria-hidden="true">1</span>
           <div>
@@ -377,6 +296,16 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
             <p>Everything stays on this machine. Nothing is uploaded to a third party.</p>
           </div>
         </div>
+
+        {project && (
+          <div className="filing-chip" role="note">
+            <span>Filing into</span>
+            <strong>{project.name}</strong>
+            <button type="button" className="text-button" onClick={() => setProject(null)}>
+              Remove from project
+            </button>
+          </div>
+        )}
 
         <label className="batch-name-field">
           <div className="field-label"><span>Batch name</span><small>Optional — makes this run easy to find later</small></div>
@@ -482,24 +411,111 @@ export default function ControlPanel({ onProgress }: { onProgress?: (progress: S
         {submitting && <div className="upload-feedback" role="status"><div><span>Uploading {files.length === 1 ? "document" : `${files.length} documents`}</span><small>Preparing secure analysis</small></div><i><b /></i></div>}
       </section>
 
-      <section className="setup-block" aria-labelledby="setup-checks">
+      <section className="setup-block profile-block" aria-labelledby="setup-profile">
+        <div className="setup-block-head">
+          <span className="setup-ordinal" aria-hidden="true">★</span>
+          <div>
+            <h2 id="setup-profile">Preset</h2>
+            <p>Reuse a saved preset, or run an ad-hoc screening. A preset names a goal and a decision rule and applies the same checks every time.</p>
+          </div>
+        </div>
+
+        <div className="profile-bar">
+          <label className="profile-picker">
+            <span className="sr-only">Choose a saved preset</span>
+            <select
+              value={activeProfile?.id || ""}
+              onChange={(event) => {
+                const chosen = profiles.find((item) => item.id === event.target.value);
+                if (chosen) applyProfile(chosen);
+                else clearProfile();
+              }}
+            >
+              <option value="">Ad-hoc screening (no preset)</option>
+              {profiles.map((profile) => (
+                <option value={profile.id} key={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </label>
+          {profileForm === null && (
+            <button type="button" className="text-button" onClick={startNewProfile}>
+              {activeProfile ? "Save current setup as a new preset" : "Create a preset from this setup"}
+            </button>
+          )}
+        </div>
+
+        {activeProfile && profileForm === null && (
+          <div className={`profile-active ${profileModified ? "modified" : ""}`} role="note">
+            <div className="profile-active-head">
+              <strong>{activeProfile.name}</strong>
+              {profileModified && <span className="profile-tag">Modified for this run</span>}
+              <button type="button" className="text-button" onClick={() => setProfileForm({ name: activeProfile.name, goal: activeProfile.goal, guidance: activeProfile.guidance })}>Edit</button>
+            </div>
+            {activeProfile.goal && <p className="profile-goal">{activeProfile.goal}</p>}
+            {activeProfile.guidance && (
+              <p className="profile-guidance"><span>Decision rule</span>{activeProfile.guidance}</p>
+            )}
+          </div>
+        )}
+
+        {profileForm !== null && (
+          <div className="profile-form">
+            <label>
+              <span>Name the preset <b aria-hidden="true">*</b></span>
+              <input
+                value={profileForm.name}
+                maxLength={MAX_PROFILE_NAME}
+                placeholder="e.g. Birth certificate — full screening"
+                onChange={(event) => setProfileForm((form) => form && { ...form, name: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Goal <small>What is this preset for?</small></span>
+              <textarea
+                value={profileForm.goal}
+                maxLength={MAX_PROFILE_GOAL}
+                rows={2}
+                placeholder="Confirm a scanned birth certificate is an authentic original before it is accepted."
+                onChange={(event) => setProfileForm((form) => form && { ...form, goal: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>Decision rule <small>How should the reviewer decide?</small></span>
+              <textarea
+                value={profileForm.guidance}
+                maxLength={MAX_PROFILE_GUIDANCE}
+                rows={3}
+                placeholder="Flag if the QR is missing or whitener probability exceeds 40%. Always verify the certificate number against the issuing portal before verifying."
+                onChange={(event) => setProfileForm((form) => form && { ...form, guidance: event.target.value })}
+              />
+            </label>
+            <p className="profile-form-note">
+              This preset captures the {selected.length} check{selected.length === 1 ? "" : "s"} and
+              thresholds selected below. It is saved on this device only. What earns each check a
+              tick is fixed by the check itself and is listed under &ldquo;Choose the checks&rdquo;.
+            </p>
+            <div className="profile-form-actions">
+              <button type="button" className="text-button" onClick={() => { setProfileForm(null); setProfileNotice(""); }}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={commitProfile}>
+                {activeProfile && activeProfile.name === profileForm.name ? "Update preset" : "Save preset"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {profileNotice && <p className="profile-notice" role="status">{profileNotice}</p>}
+      </section>
+
+      <section className="setup-block checks-block" aria-labelledby="setup-checks">
         <div className="setup-block-head">
           <span className="setup-ordinal" aria-hidden="true">2</span>
           <div>
             <h2 id="setup-checks">Choose the checks</h2>
             <p>
-              Start from a preset, then add or drop individual detectors for this case. Each check
-              states what earns it a pass — that rule belongs to the check and is the same for every
-              document.
+              Add or drop individual detectors for this case. Each check states what earns it a pass
+              — that rule belongs to the check and is the same for every document.
             </p>
           </div>
-        </div>
-
-        <div className="preset-heading"><span>Investigation preset</span><small>Choose a starting point, then refine checks below.</small></div>
-        <div className="preset-options" role="group" aria-label="Investigation presets">
-          <button type="button" onClick={() => applyPreset("quick")}><strong>Quick</strong><span>Fast triage</span></button>
-          <button type="button" onClick={() => applyPreset("standard")}><strong>Standard</strong><span>Recommended</span></button>
-          <button type="button" onClick={() => applyPreset("deep")}><strong>Deep</strong><span>Full review</span></button>
         </div>
 
         <div className="analyzer-heading">

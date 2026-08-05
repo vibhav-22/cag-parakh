@@ -8,22 +8,30 @@ export function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const ANALYZER_LABELS: Record<string, string> = {
+  metadata: "Metadata Ledger",
+  font_analysis: "Typeface Fingerprint",
+  signature: "Signature Trace",
+  photo_detection: "Photo Extraction",
+  qr_presence: "QR Seal",
+  tamper_scan: "Whitener Detection",
+  moire: "Moiré Trace",
+  same_phone: "Capture Match",
+  readability: "Clarity Scan",
+};
+
 export function analyzerLabel(value: string) {
-  if (value === "tamper_scan") return "Whitener Detection";
-  if (value === "photo_detection") return "Document Photo";
-  if (value === "qr_presence") return "QR Presence";
-  return titleCase(value);
+  return ANALYZER_LABELS[value] || titleCase(value);
 }
 
 const SHORT_LABELS: Record<string, string> = {
-  metadata: "Metadata",
+  metadata: "Ledger",
   qr_presence: "QR",
   font_analysis: "Fonts",
-  moire: "Moire",
-  scanner_noise: "Scanner",
-  same_phone: "Same Phone",
+  moire: "Moiré",
+  same_phone: "Capture",
   tamper_scan: "Whitener",
-  readability: "Readability",
+  readability: "Clarity",
   photo_detection: "Photo",
 };
 
@@ -101,6 +109,22 @@ export function evidenceLabel(key: string) {
   return titleCase(key).replace(/\bQr\b/g, "QR").replace(/\bDpi\b/g, "DPI").replace(/\bPdf\b/g, "PDF");
 }
 
+/** Human day label above the exact timestamp, so a scan down a list reads as
+ *  time passing rather than as identical dates. Shared by /history and
+ *  /projects — both list stored records newest-first. */
+export function relativeDay(iso: string, now: number): string {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOf(new Date(now)) - startOf(then)) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "Last week";
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return `${Math.round(days / 30)} months ago`;
+}
+
 export function formatWhen(iso: string) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime())
@@ -141,10 +165,10 @@ export function initialAnalysisSettings(): AnalysisSettings {
     return {
       metadata: { ...DEFAULT_ANALYSIS_SETTINGS.metadata, ...parsed.metadata },
       qr_presence: { ...DEFAULT_ANALYSIS_SETTINGS.qr_presence, ...parsed.qr_presence },
-      scanner_noise: { ...DEFAULT_ANALYSIS_SETTINGS.scanner_noise, ...parsed.scanner_noise },
       same_phone: { ...DEFAULT_ANALYSIS_SETTINGS.same_phone, ...parsed.same_phone },
       tamper_scan: { ...DEFAULT_ANALYSIS_SETTINGS.tamper_scan, ...parsed.tamper_scan },
       readability: { ...DEFAULT_ANALYSIS_SETTINGS.readability, ...parsed.readability },
+      photo_detection: { ...DEFAULT_ANALYSIS_SETTINGS.photo_detection, ...parsed.photo_detection },
     };
   } catch {
     return DEFAULT_ANALYSIS_SETTINGS;

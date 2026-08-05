@@ -137,6 +137,8 @@ export type Batch = {
   status: "queued" | "running" | "completed";
   document_count: number;
   jobs: Job[];
+  // The project this run was filed into, or null/undefined for an unfiled run.
+  project_id?: string | null;
 };
 
 export type BatchSummary = {
@@ -147,9 +149,43 @@ export type BatchSummary = {
   document_count: number;
   completed_documents: number;
   flagged_documents: number;
+  project_id?: string | null;
 };
 
-export type Session = { required: boolean; authenticated: boolean };
+// A folder that groups screening runs, the way a ChatGPT project groups
+// chats. batch_count/last_activity_at are derived server-side, never stored.
+export type Project = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  batch_count: number;
+  last_activity_at: string | null;
+};
+
+export type SessionUser = { id: string; email: string; display_name: string };
+
+/**
+ * Reported by the backend so the app can warn before access stops rather than
+ * failing without notice. `offline` means the authorization service is
+ * unreachable and the session is running on its grace window; `clock_tampered`
+ * means the system clock moved backwards and the session was dropped.
+ */
+export type SessionConnectivity = {
+  offline: boolean;
+  grace_expires_at: number | null;
+  grace_seconds_remaining: number | null;
+  grace_total_seconds: number;
+  warn: boolean;
+  clock_tampered: boolean;
+};
+
+export type Session = {
+  required: boolean;
+  authenticated: boolean;
+  user?: SessionUser | null;
+  connectivity?: SessionConnectivity;
+};
 
 export type DocumentManifest = {
   page_count: number;

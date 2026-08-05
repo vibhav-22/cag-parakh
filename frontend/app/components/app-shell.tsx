@@ -1,11 +1,12 @@
 "use client";
 
 import { ReactNode } from "react";
+import GraceBanner from "./grace-banner";
 import NavLink from "./nav-link";
 import NavRail from "./nav-rail";
 import { useSession } from "../lib/session";
 
-export type RouteName = "home" | "new" | "ask" | "batches" | "document" | "history" | "reports" | "settings";
+export type RouteName = "home" | "new" | "ask" | "batches" | "document" | "history" | "projects" | "reports" | "settings";
 export type Chrome = "bare" | "rail" | "icons";
 
 /**
@@ -50,6 +51,7 @@ export default function AppShell({
       <div className="shell" data-chrome={chrome}>
         {chrome !== "bare" && <NavRail collapsed={chrome === "icons"} />}
         <div className="route-body">
+          <GraceBanner />
           {header}
           <div className="route-content">{children}</div>
         </div>

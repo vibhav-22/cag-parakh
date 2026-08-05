@@ -1,0 +1,71 @@
+{
+  "duration": 46.0,
+  "marks": [
+    {
+      "id": "arrival",
+      "enter": 0.0,
+      "settle": 0.0,
+      "leave": 0.042764
+    },
+    {
+      "id": "photo",
+      "enter": 0.042764,
+      "settle": 0.08236,
+      "leave": 0.135815
+    },
+    {
+      "id": "signature",
+      "enter": 0.135815,
+      "settle": 0.175411,
+      "leave": 0.228866
+    },
+    {
+      "id": "qr",
+      "enter": 0.228866,
+      "settle": 0.268462,
+      "leave": 0.321916
+    },
+    {
+      "id": "readability",
+      "enter": 0.321916,
+      "settle": 0.361513,
+      "leave": 0.414967
+    },
+    {
+      "id": "fonts",
+      "enter": 0.414967,
+      "settle": 0.454563,
+      "leave": 0.513364
+    },
+    {
+      "id": "tamper",
+      "enter": 0.513364,
+      "settle": 0.55296,
+      "leave": 0.609087
+    },
+    {
+      "id": "moire",
+      "enter": 0.609087,
+      "settle": 0.648683,
+      "leave": 0.702138
+    },
+    {
+      "id": "same-phone",
+      "enter": 0.702138,
+      "settle": 0.741734,
+      "leave": 0.797862
+    },
+    {
+      "id": "metadata",
+      "enter": 0.797862,
+      "settle": 0.837458,
+      "leave": 0.893585
+    },
+    {
+      "id": "verdict",
+      "enter": 0.893585,
+      "settle": 0.933182,
+      "leave": 1.0
+    }
+  ]
+}

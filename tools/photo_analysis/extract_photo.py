@@ -48,6 +48,53 @@ MAX_DETECTED_PHOTOS = 50
 PHOTO_RENDER_DPI = 300
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".tif", ".tiff", ".bmp"}
 
+# How hard to look for photos before reporting a document as having none, and
+# before concluding the ones found are all of them.
+#
+# The pipeline has always had two stages: pull the raster images embedded in
+# the PDF (cheap, no rendering), then render every page and sweep it with a
+# sliding window (expensive). Until this setting existed, stage two ran only
+# when stage one found *nothing* — so a page whose embedded pass yielded one
+# photo was never swept, and a second photo elsewhere on that page was never
+# found. That matters most for identity matching, which compares every photo
+# in a document against every photo seen earlier.
+#
+#   low    - embedded images only. Never renders. Cheapest by a wide margin.
+#            "No photo" here can mean "the page was never rendered".
+#   medium - embedded images, then render and sweep only if nothing was found.
+#            The historical behaviour, and still the default.
+#   high   - always render and sweep every page, even when the embedded pass
+#            already found a photo, at a higher resolution, a denser window
+#            stride, and a lower face-confidence floor.
+#
+# `render_fallback` is whether an empty result escalates to rendering;
+# `always_render` sweeps regardless; `stride` is the sliding-window step in
+# pixels (smaller = denser = slower); `min_confidence` is the face score a
+# region must reach to count as a photo.
+PHOTO_EFFORT_LEVELS: dict[str, dict[str, Any]] = {
+    "low": {
+        "render_fallback": False, "always_render": False,
+        "dpi": 200, "stride": 160, "min_confidence": 0.50,
+    },
+    "medium": {
+        "render_fallback": True, "always_render": False,
+        "dpi": 300, "stride": 120, "min_confidence": 0.50,
+    },
+    "high": {
+        "render_fallback": True, "always_render": True,
+        "dpi": 400, "stride": 90, "min_confidence": 0.40,
+    },
+}
+PHOTO_DEFAULT_EFFORT = "medium"
+
+
+def effort_settings(effort: str | None) -> dict[str, Any]:
+    """Resolve an effort name to its knobs, falling back to the default."""
+
+    return PHOTO_EFFORT_LEVELS.get(
+        str(effort or "").strip().lower(), PHOTO_EFFORT_LEVELS[PHOTO_DEFAULT_EFFORT]
+    )
+
 _face_app: Any | None = None
 
 
@@ -450,6 +497,7 @@ def extract_all_and_validate(
     prefer_full_image: bool = False,
     minimum_crop_side: int = 0,
     minimum_score: float = FACE_CONFIDENCE_THRESHOLD,
+    stride: int = 120,
 ) -> list[dict[str, Any]]:
     """Find and assess every distinct face-bearing photo region on one page."""
 
@@ -498,6 +546,7 @@ def extract_all_and_validate(
         image,
         app,
         minimum_score=minimum_score,
+        stride=stride,
     ))
 
     kept: list[dict[str, Any]] = []
@@ -624,17 +673,33 @@ def process_file(
     *,
     save_path: str | Path | None = None,
     save_dir: str | Path | None = None,
+    effort: str | None = None,
 ) -> dict[str, Any]:
     source = Path(path)
     app = get_face_app()
     backend = str(getattr(app, "backend_name", app.__class__.__name__)).lower()
+    level = effort_settings(effort)
+    effort_name = str(effort or PHOTO_DEFAULT_EFFORT).strip().lower()
+    if effort_name not in PHOTO_EFFORT_LEVELS:
+        effort_name = PHOTO_DEFAULT_EFFORT
+    render_dpi = int(level["dpi"])
+    stride = int(level["stride"])
+    minimum_confidence = float(level["min_confidence"])
     if source.suffix.lower() == ".pdf":
-        if backend == "opencv":
+        if backend == "opencv" or bool(level["always_render"]):
             # Haar detection needs a predictable scale. Raw embedded page
             # images vary wildly in resolution and previously let small stamp
             # marks outrank real portraits. Render each page at 300 DPI and
             # require a crop large enough to contain a reviewable ID photo.
-            sources = [(page, image, False) for page, image in pdf_to_images(source)]
+            #
+            # "High" effort renders for a different reason: it takes the
+            # rendered page as the single source of truth rather than adding a
+            # sweep on top of the embedded pass. Those two passes work in
+            # different coordinate spaces — an embedded image is a crop of the
+            # page, so its boxes cannot be compared with page boxes to
+            # de-duplicate — and running both would report the same portrait
+            # twice. The dense sweep finds everything the embedded pass would.
+            sources = [(page, image, False) for page, image in pdf_to_images(source, render_dpi)]
             rendered_loaded = True
         else:
             embedded = extract_embedded_pdf_images(source)
@@ -662,23 +727,32 @@ def process_file(
             minimum_score=(
                 OPENCV_MULTI_PHOTO_CONFIDENCE
                 if backend == "opencv" and source.suffix.lower() == ".pdf"
-                else FACE_CONFIDENCE_THRESHOLD
+                else minimum_confidence
             ),
+            stride=stride,
         )
         for result in page_results:
             result["source_size_px"] = [int(image.shape[1]), int(image.shape[0])]
         detected_results.extend((page, result) for result in page_results)
 
+    # The embedded pass found nothing, so fall back to rendering every page and
+    # sweeping it. At "high" the sweep already ran as the primary pass above;
+    # at "low" it never runs, which is exactly what makes "low" cheap — and why
+    # a "no photo" reading at low effort means "not looked for", not "absent".
     if (
         source.suffix.lower() == ".pdf"
         and backend != "opencv"
+        and bool(level["render_fallback"])
+        and not bool(level["always_render"])
         and not detected_results
     ):
         rendered_loaded = True
-        for page, image in pdf_to_images(source):
+        for page, image in pdf_to_images(source, render_dpi):
             if reference_image is None:
                 reference_image = image
-            page_results = extract_all_and_validate(image, app)
+            page_results = extract_all_and_validate(
+                image, app, minimum_score=minimum_confidence, stride=stride,
+            )
             for result in page_results:
                 result["source_size_px"] = [int(image.shape[1]), int(image.shape[0])]
             detected_results.extend((page, result) for result in page_results)
@@ -686,7 +760,15 @@ def process_file(
     if not detected_results:
         if reference_image is None and rendered_loaded:
             raise ValueError("The document contains no readable pages.")
-        blur, brightness, contrast = quality_check(reference_image)
+        if reference_image is None:
+            # Low effort on a PDF that embeds no raster images: nothing was
+            # ever decoded, so there is no image to measure quality against.
+            # That is still a legitimate "no photo found" — reporting it beats
+            # crashing the detector, and `search_effort` in the result tells
+            # the check that the pages were never rendered.
+            blur, brightness, contrast = 0.0, 0.0, 0.0
+        else:
+            blur, brightness, contrast = quality_check(reference_image)
         primary_page = 1
         primary_result = {
             "pass": False,
@@ -782,7 +864,11 @@ def process_file(
         "contrast": round(float(primary_result["contrast"]), 2),
         "face_confidence": round(float(primary_result["face_score"]), 4),
         "detection_backend": backend,
-        "render_dpi": PHOTO_RENDER_DPI if source.suffix.lower() == ".pdf" else None,
+        # What "no photo found" is worth depends on how hard this run looked,
+        # so the effort travels with the result rather than being inferred.
+        "search_effort": effort_name,
+        "page_rendered": rendered_loaded,
+        "render_dpi": render_dpi if source.suffix.lower() == ".pdf" else None,
         "bbox_px": primary_result["bbox_px"],
         "findings": findings,
         "artifacts": artifacts,
@@ -795,6 +881,16 @@ def main() -> int:
     parser.add_argument("--output", help="Write the JSON result to this path")
     parser.add_argument("--save", help="Save the first photo here and number any additional photos")
     parser.add_argument("--save-dir", help="Save all detected photos in this artifact directory")
+    parser.add_argument(
+        "--effort",
+        choices=sorted(PHOTO_EFFORT_LEVELS),
+        default=PHOTO_DEFAULT_EFFORT,
+        help=(
+            "How hard to look: low = embedded images only (never renders); "
+            "medium = render only if the embedded pass finds nothing; "
+            "high = always render every page at higher DPI and sweep densely"
+        ),
+    )
     args = parser.parse_args()
 
     source = Path(args.path)
@@ -807,7 +903,9 @@ def main() -> int:
         exit_code = 2
     else:
         try:
-            payload = process_file(source, save_path=args.save, save_dir=args.save_dir)
+            payload = process_file(
+                source, save_path=args.save, save_dir=args.save_dir, effort=args.effort,
+            )
             exit_code = 0
         except Exception as exc:  # noqa: BLE001 - the CLI must always return a report
             payload = {"status": "error", "detail": str(exc), "artifacts": []}

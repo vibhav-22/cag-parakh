@@ -160,8 +160,31 @@
 
 /* ---- /batches: summary matrix (Document / Type / Checks /
    Authenticity / Forensic signals / Status) ------------------- */
-.app[data-route="batches"] .summary-matrix .doc-link { display: grid; gap: 1px; }
-.app[data-route="batches"] .summary-matrix .doc-name { line-height: 1.3; }
+.app[data-route="batches"] .doc-link { color: var(--accent); text-decoration: none; }
+.app[data-route="batches"] .doc-link:hover { text-decoration: underline; }
+.app[data-route="batches"] .summary-matrix .doc-link {
+  display: inline-grid;
+  gap: 1px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--route-line);
+  border-radius: var(--radius-sm);
+  background: var(--route-panel);
+  color: var(--ink);
+  text-decoration: none;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+.app[data-route="batches"] .summary-matrix .doc-link:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.app[data-route="batches"] .summary-matrix .doc-name {
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .app[data-route="batches"] .summary-matrix .doc-id { color: var(--subtle); font-size: 9px; font-weight: 500; letter-spacing: .02em; }
 .app[data-route="batches"] .summary-matrix .type-cell,
 .app[data-route="batches"] .summary-matrix .checks-cell { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
@@ -194,7 +217,8 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.app[data-route="batches"] .signals-cell { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
+.app[data-route="batches"] .signals-td { vertical-align: middle; }
+.app[data-route="batches"] .signals-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 260px; }
 .app[data-route="batches"] .signal-chip {
   padding: 2px 7px;
   border: 1px solid var(--line-strong);
@@ -264,13 +288,25 @@
 /* ---- /batches: the matrix as flat data, not a card -------- */
 
 .app[data-route="batches"] .batch-view { padding-top: 18px; }
-.app[data-route="batches"] .matrix-card { margin-top: 0; }
+.app[data-route="batches"] .matrix-card { margin-top: 0; padding: 16px 18px 18px; }
 .app[data-route="batches"] .matrix-scroll {
   margin-top: 12px;
+  max-width: 100%;
+  overflow-x: auto;
   border: 1px solid var(--route-line);
   border-radius: var(--radius-sm);
   background: var(--route-surface);
 }
+.app[data-route="batches"] .outcome-matrix { width: 100%; border-collapse: collapse; }
+.app[data-route="batches"] .outcome-matrix th,
+.app[data-route="batches"] .outcome-matrix td { vertical-align: middle; }
+.app[data-route="batches"] .summary-matrix { table-layout: fixed; min-width: 720px; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(1) { width: 22%; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(2) { width: 8%; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(3) { width: 9%; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(4) { width: 21%; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(5) { width: 22%; }
+.app[data-route="batches"] .summary-matrix thead th:nth-child(6) { width: 18%; }
 .app[data-route="batches"] .outcome-matrix th,
 .app[data-route="batches"] .outcome-matrix td {
   border-bottom: 1px solid var(--route-line);
@@ -1297,7 +1333,7 @@
   .app[data-route="document"] .decision-options { grid-template-columns: 1fr; }
 }
 
-/* ── Screening test's decision rule in the workspace ────────────────────────
+/* ── Preset's decision rule in the workspace ────────────────────────
    Carried from the profile the run was started under, shown above the
    calibration note so the reviewer applies the same rule to every document. */
 .app[data-route="document"] .decision-rule {

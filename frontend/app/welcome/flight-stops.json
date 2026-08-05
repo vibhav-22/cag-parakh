@@ -1,0 +1,179 @@
+{
+  "//": "Single source of truth for the verification flight. tools/flight/render_flight.py reads this to bake the camera move and the spatially-locked overlays into the video; app/welcome reads it to place the HTML callout copy on the same timeline. Change it in one place and both follow.",
+  "//detectors": "One stop per evaluator in backend/checks.py EVALUATORS. Nothing here is invented: if a detector is not registered there it does not appear, and each stop's tone matches the status that evaluator would actually return for this specimen.",
+  "page": { "w": 794, "h": 1123 },
+  "video": { "w": 1920, "h": 1080, "fps": 30, "duration": 46.0 },
+  "camera": { "pad": 26, "moveFraction": 0.6 },
+  "stops": [
+    {
+      "id": "arrival",
+      "weight": 0.8,
+      "tone": "neutral",
+      "module": null,
+      "rect": null,
+      "label": "The sheet",
+      "eyebrow": "Document verification flight",
+      "title": "One sheet. Nine detectors.",
+      "body": "A candidate verification sheet lands on the platen. Parakh reads it the way an examiner would — region by region — and every one of the nine checks below is a detector that actually ships.",
+      "checks": []
+    },
+    {
+      "id": "photo",
+      "weight": 1.0,
+      "tone": "clear",
+      "module": "photo_detection",
+      "rect": { "x": 588, "y": 152, "w": 172, "h": 200 },
+      "frame": { "x": 448, "y": 140, "w": 322, "h": 232 },
+      "eyebrow": "Photo detection",
+      "title": "Is there a face, and can you see it?",
+      "body": "The affixed photograph is extracted as a raster region and scored on its own terms. Presence passes; absence is the finding.",
+      "checks": [
+        { "label": "Face present", "value": "0.94 confidence", "status": "pass" },
+        { "label": "Blur (Laplacian)", "value": "182 — sharp", "status": "pass" },
+        { "label": "Brightness", "value": "in range", "status": "pass" }
+      ]
+    },
+    {
+      "id": "signature",
+      "weight": 1.0,
+      "tone": "clear",
+      "module": "signature",
+      "rect": { "x": 36, "y": 872, "w": 722, "h": 100 },
+      "frame": { "x": 30, "y": 792, "w": 736, "h": 250 },
+      "eyebrow": "Signature",
+      "title": "Signed, endorsed, sealed.",
+      "body": "Signature detection passes on presence and fails on absence — an unsigned sheet is the finding, not a guess at whose hand it was.",
+      "checks": [
+        { "label": "Candidate signature", "value": "2 of 2 found", "status": "pass" },
+        { "label": "Invigilator endorsement", "value": "present", "status": "pass" },
+        { "label": "Office seal", "value": "located", "status": "pass" }
+      ]
+    },
+    {
+      "id": "qr",
+      "weight": 1.0,
+      "tone": "clear",
+      "module": "qr_presence",
+      "rect": { "x": 352, "y": 160, "w": 136, "h": 152 },
+      "frame": { "x": 336, "y": 150, "w": 168, "h": 168 },
+      "eyebrow": "QR presence",
+      "title": "Every code decoded, not just seen.",
+      "body": "The scan covers every page at the configured resolution and rotations. It passes on a decoded payload — spotting a code-shaped smudge is not the same as reading one.",
+      "checks": [
+        { "label": "QR codes found", "value": "1 of 1 required", "status": "pass" },
+        { "label": "Decoded payload", "value": "CAG/8841/0412", "status": "pass" },
+        { "label": "Page", "value": "1", "status": "pass" }
+      ]
+    },
+    {
+      "id": "readability",
+      "weight": 1.0,
+      "tone": "clear",
+      "module": "readability",
+      "rect": { "x": 40, "y": 386, "w": 712, "h": 180 },
+      "frame": { "x": 36, "y": 378, "w": 720, "h": 200 },
+      "eyebrow": "Readability",
+      "title": "Can a machine read it at all?",
+      "body": "A battery of sub-tests scores whether the file is machine-readable. A sheet no tool can parse is a finding in its own right, long before anyone asks whether it is genuine.",
+      "checks": [
+        { "label": "Readability score", "value": "91 / 100", "status": "pass" },
+        { "label": "Sub-tests passed", "value": "11 / 12", "status": "pass" },
+        { "label": "Text layer", "value": "present", "status": "pass" }
+      ]
+    },
+    {
+      "id": "fonts",
+      "weight": 1.1,
+      "tone": "flag",
+      "module": "font_analysis",
+      "rect": { "x": 40, "y": 590, "w": 710, "h": 216 },
+      "frame": { "x": 30, "y": 580, "w": 738, "h": 240 },
+      "eyebrow": "Font analysis",
+      "title": "A glyph that does not belong.",
+      "body": "Every embedded typeface is enumerated and named. One glyph set that matches nothing else on the page is how a substituted grade gives itself away.",
+      "checks": [
+        { "label": "Embedded typefaces", "value": "3 — one unexpected", "status": "fail" },
+        { "label": "Foreign glyph run", "value": "row 4, obtained", "status": "fail" },
+        { "label": "Baseline drift", "value": "0.8pt", "status": "warn" }
+      ]
+    },
+    {
+      "id": "tamper",
+      "weight": 1.05,
+      "tone": "flag",
+      "module": "tamper_scan",
+      "rect": { "x": 28, "y": 560, "w": 738, "h": 340 },
+      "frame": { "x": 28, "y": 556, "w": 740, "h": 350 },
+      "eyebrow": "Tamper scan",
+      "title": "The edit, localised.",
+      "body": "Compression residue, whitener traces and re-save generations are cross-read. The scan agrees with the font finding and puts the edit in one region rather than over the whole sheet.",
+      "checks": [
+        { "label": "Editor trace", "value": "raster editor", "status": "fail" },
+        { "label": "Re-save generation", "value": "2", "status": "warn" },
+        { "label": "Localised region", "value": "marks table", "status": "fail" }
+      ]
+    },
+    {
+      "id": "moire",
+      "weight": 1.0,
+      "tone": "clear",
+      "module": "moire",
+      "rect": { "x": 620, "y": 190, "w": 100, "h": 100 },
+      "frame": { "x": 604, "y": 178, "w": 132, "h": 124 },
+      "eyebrow": "Moiré",
+      "title": "A photograph, or a photograph of a screen?",
+      "body": "Frequency analysis looks for the periodic pattern a screen or a reprint leaves behind. No anomalous peaks here — this is a first-generation capture.",
+      "checks": [
+        { "label": "Images analysed", "value": "1", "status": "pass" },
+        { "label": "File verdict", "value": "Clean", "status": "pass" },
+        { "label": "Periodic peaks", "value": "none found", "status": "pass" }
+      ]
+    },
+    {
+      "id": "same-phone",
+      "weight": 1.05,
+      "tone": "inconclusive",
+      "module": "same_phone",
+      "rect": null,
+      "eyebrow": "Same phone",
+      "title": "This one could not run — and says so.",
+      "body": "The same-phone test compares pages against each other to see whether one was captured on a different device. This sheet is a single page, so there is nothing to compare. It returns inconclusive with the reason, and is never quietly counted as a pass.",
+      "checks": [
+        { "label": "Pages analysed", "value": "1 — needs 2", "status": "inconclusive" },
+        { "label": "Comparison", "value": "not possible", "status": "inconclusive" },
+        { "label": "Counted as a pass", "value": "no", "status": "inconclusive" }
+      ]
+    },
+    {
+      "id": "metadata",
+      "weight": 1.05,
+      "tone": "info",
+      "module": "metadata",
+      "rect": { "x": 40, "y": 1040, "w": 712, "h": 40 },
+      "frame": { "x": 36, "y": 1006, "w": 720, "h": 92 },
+      "eyebrow": "Metadata",
+      "title": "Facts, deliberately without a verdict.",
+      "body": "How the file was generated: producer, creator, dates, re-save traces. Metadata never gets a tick or a cross and is excluded from every pass/fail total — a producer string is a fact about a file's origin, not a failure.",
+      "checks": [
+        { "label": "Generated by", "value": "raster editor", "status": "info" },
+        { "label": "Re-saved after creation", "value": "yes", "status": "info" },
+        { "label": "Counts toward totals", "value": "never", "status": "info" }
+      ]
+    },
+    {
+      "id": "verdict",
+      "weight": 1.25,
+      "tone": "flag",
+      "module": null,
+      "rect": null,
+      "eyebrow": "Verdict",
+      "title": "Needs review — with the evidence attached.",
+      "body": "Parakh never decides for you. It hands back a verdict, the region it came from, and the reason in the detector's own words. The review stays human-led.",
+      "checks": [
+        { "label": "Detectors passed", "value": "5", "status": "pass" },
+        { "label": "Findings raised", "value": "2", "status": "fail" },
+        { "label": "Inconclusive", "value": "1", "status": "inconclusive" }
+      ]
+    }
+  ]
+}

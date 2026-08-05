@@ -3,17 +3,21 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { SessionProvider } from "./lib/session";
 import "./globals.css";
+// Faces first, so every stylesheet below can name them.
+import "./styles/fonts.css";
 // Shell first (it defines the per-route surface tokens), then one stylesheet
 // per route. Each route file owns its own selectors so they never collide.
 import "./styles/shell.css";
 import "./styles/home.css";
 import "./styles/new.css";
 import "./styles/history.css";
+import "./styles/projects.css";
 import "./styles/settings.css";
 import "./styles/case.css";
 import "./styles/ask.css";
 import "./styles/pen-design.css";
 import "./styles/reports.css";
+import "./styles/welcome.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

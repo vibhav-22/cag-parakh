@@ -1,0 +1,610 @@
+/* Public landing page.
+
+   Editorial treatment: pure white ground, near-black ink, and display type set
+   huge, uppercase and tightly tracked with sub-1 leading. The workspace's own
+   surface tokens are deliberately NOT used for the ground here -- a blue-tinted
+   app surface reads as a colour cast on a landing page -- but the semantic
+   colours are shared verbatim, so blue still means action, green cleared, red a
+   finding, amber could-not-run.
+
+   Laid out for a laptop (1280-1680 is the design target). Narrow widths are
+   kept legible rather than art-directed -- the fly-through falls back to a
+   stack of stills below 900px. */
+
+.welcome {
+  --w-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  /* Editorial ground: pure white, near-black ink. The workspace's blue-tinted
+     app surface belongs behind dense tool chrome; on a landing page it reads as
+     a colour cast rather than as a surface. */
+  --w-paper: #ffffff;
+  --w-ink: #1b1b1c;
+  --w-ink-2: #5d5d62;
+  --w-ink-3: #8e8e95;
+  --w-line: #e6e6e3;
+  --w-line-strong: #d2d2ce;
+
+  min-height: 100dvh;
+  background: var(--w-paper);
+  color: var(--w-ink);
+  font-family: "Instrument Sans", var(--font-geist-sans), system-ui, sans-serif;
+  /* Body copy sits at 500, not 400. It is the single change that makes text
+     feel set rather than defaulted, and it is what the reference does. */
+  font-weight: 500;
+  overflow-x: clip;
+}
+
+.welcome h1,
+.welcome h2,
+.welcome h3 {
+  margin: 0;
+  font-family: "Bricolage Grotesque", var(--font-geist-sans), system-ui, sans-serif;
+  color: var(--w-ink);
+}
+
+/* Display type: huge, uppercase, tightly tracked, and set with a line-height
+   BELOW 1 so the lines lock together as a block. That sub-1 leading is the
+   whole trick -- at 1.1 the same words just look big. */
+.welcome .display {
+  font-weight: 800;
+  font-size: clamp(46px, 9.2vw, 132px);
+  line-height: 0.86;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.welcome .pen-eyebrow {
+  margin: 0 0 18px;
+  color: var(--w-ink-3);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Editorial section numbering, straight from the reference's rhythm. Sits
+   tight against the eyebrow so the two read as one label, not two. */
+.welcome-index {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--w-ink-3);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* --- chrome ----------------------------------------------------------- */
+
+.welcome-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--w-line);
+  background: color-mix(in srgb, var(--w-paper) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+.welcome-topbar .brand-copy .brand-name { font-size: 15px; font-weight: 700; }
+.welcome-topbar .brand-copy p { margin: 2px 0 0; color: var(--w-ink-3); font-size: 10px; }
+.welcome-signin {
+  min-height: 34px;
+  margin-left: auto;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--pen-radius-sm);
+  background: var(--w-paper);
+  color: var(--w-ink-2);
+  font-size: 12px;
+  font-weight: 620;
+  text-decoration: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.welcome-signin:hover { color: var(--pen-blue); border-color: var(--pen-blue); }
+
+/* --- hero ------------------------------------------------------------- */
+
+/* Left-aligned, not centred. Centred display type has no edge to lock to and
+   loses the poster quality the size is buying. */
+.welcome-hero {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 112px 40px 96px;
+}
+.welcome-hero h1 { margin: 0 0 32px; }
+.welcome-lede {
+  margin: 0 0 36px;
+  max-width: 54ch;
+  color: var(--w-ink-2);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.welcome-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.welcome-secondary {
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--pen-radius-sm);
+  background: var(--w-paper);
+  color: var(--w-ink-2);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.welcome-secondary:hover { color: var(--pen-blue); border-color: var(--pen-blue); }
+.welcome-note {
+  margin: 24px 0 0;
+  color: var(--w-ink-3);
+  font-size: 11.5px;
+}
+
+/* --- the flight ------------------------------------------------------- */
+
+.flight { position: relative; }
+
+/* One scroll, one test. Each stop owns a viewport-tall band and each band is a
+   snap target, so a wheel gesture settles on a test rather than somewhere
+   between two of them -- which is what lets the clip play a whole leg of the
+   camera move instead of being dragged frame by frame.
+
+   Proximity, not mandatory: snapping is scoped to these bands (nothing else on
+   the page declares an alignment), and mandatory would fight the long prose
+   sections either side of the flight. */
+html:has(.flight) { scroll-snap-type: y proximity; }
+
+.flight-band {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  pointer-events: none;
+  scroll-snap-align: start;
+}
+
+.flight-stage {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  /* Same ground as the rest of the landing page. The film's own platen is
+     rendered to this value too (PLATEN in tools/flight/render_flight.py), so
+     the stage and the frame inside it are one surface. */
+  background: var(--w-paper);
+}
+
+.flight-frame { position: absolute; inset: 0; }
+.flight-video,
+.flight-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* The still holds the frame until the clip has decoded and painted. Hiding it
+   on loadedmetadata instead leaves an empty box on Safari, where a muted video
+   that has never played will not paint a seeked frame. */
+.flight-poster { opacity: 1; transition: opacity 380ms ease; }
+.flight-frame[data-ready="true"] .flight-poster { opacity: 0; }
+
+/* Rail: the modules by name, doubling as a table of contents for the film. */
+.flight-rail {
+  position: absolute;
+  left: 32px;
+  top: 50%;
+  z-index: 3;
+  transform: translateY(-50%);
+  padding: 10px;
+  border: 1px solid var(--w-line);
+  border-radius: var(--pen-radius-md);
+  background: color-mix(in srgb, var(--w-paper) 92%, transparent);
+  backdrop-filter: blur(10px);
+  /* The sheet under these overlays is white, so a hairline border alone leaves
+     them floating invisibly. The shadow is what separates chrome from page. */
+  box-shadow: 0 16px 38px -22px rgba(20, 26, 36, 0.34), 0 2px 6px -3px rgba(20, 26, 36, 0.1);
+}
+.flight-rail ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.flight-rail button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--pen-radius-sm);
+  background: none;
+  color: var(--w-ink-3);
+  font-size: 11.5px;
+  font-weight: 620;
+  text-align: left;
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+.flight-rail button:hover { color: var(--w-ink); background: #f2f2ef; }
+.flight-rail-tick {
+  flex: none;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--w-line-strong);
+  transform-origin: left center;
+  transition: transform 260ms var(--w-ease), background-color 180ms ease;
+}
+.flight-rail button[data-active="true"] { color: var(--w-ink); background: #f2f2ef; }
+.flight-rail button[data-active="true"] .flight-rail-tick {
+  background: var(--pen-blue);
+  transform: scaleX(1.5);
+}
+.flight-rail button[data-active="true"][data-tone="clear"] .flight-rail-tick { background: var(--pen-clean); }
+.flight-rail button[data-active="true"][data-tone="flag"] .flight-rail-tick { background: var(--pen-flag); }
+.flight-rail button[data-active="true"][data-tone="inconclusive"] .flight-rail-tick { background: var(--pen-caution); }
+.flight-rail button[data-active="true"][data-tone="info"] .flight-rail-tick { background: var(--w-ink-3); }
+.flight-carousel li[data-tone="inconclusive"] .flight-eyebrow { color: var(--pen-caution); }
+.flight-carousel li[data-tone="info"] .flight-eyebrow { color: var(--w-ink-2); }
+
+/* Copy panel. Every stop is rendered and stacked; only opacity and transform
+   change between them, so switching stops never triggers layout. */
+.flight-panel {
+  position: absolute;
+  right: 40px;
+  bottom: 76px;
+  z-index: 3;
+  width: 396px;
+  display: grid;
+}
+.flight-copy {
+  grid-area: 1 / 1;
+  padding: 22px 22px 24px;
+  border: 1px solid var(--w-line);
+  border-radius: var(--pen-radius-md);
+  background: var(--w-paper);
+  box-shadow: 0 22px 48px -26px rgba(20, 26, 36, 0.38), 0 2px 8px -4px rgba(20, 26, 36, 0.1);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 360ms ease, transform 460ms var(--w-ease);
+  pointer-events: none;
+}
+.flight-copy[data-active="true"] { opacity: 1; transform: none; pointer-events: auto; }
+.flight-copy[data-tone="clear"] { --w-tone: var(--pen-clean); }
+.flight-copy[data-tone="flag"] { --w-tone: var(--pen-flag); }
+.flight-copy[data-tone="inconclusive"] { --w-tone: var(--pen-caution); }
+.flight-copy[data-tone="info"] { --w-tone: var(--w-ink-2); }
+.flight-copy .flight-eyebrow {
+  margin: 0 0 8px;
+  color: var(--w-tone, var(--pen-blue));
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.flight-copy h3 { margin: 0 0 10px; font-size: 21px; font-weight: 680; }
+.flight-body { margin: 0; color: var(--w-ink-2); font-size: 12.5px; line-height: 1.62; }
+
+.flight-checks {
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--w-line);
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.flight-check {
+  display: grid;
+  grid-template-columns: 7px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+}
+.flight-check-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--w-ink-3); }
+.flight-check.is-pass .flight-check-dot { background: var(--pen-clean); }
+.flight-check.is-warn .flight-check-dot { background: var(--pen-caution); }
+.flight-check.is-fail .flight-check-dot { background: var(--pen-flag); }
+.flight-check.is-inconclusive .flight-check-dot { background: var(--pen-caution); }
+/* Metadata is reported, never scored, so its marker is deliberately hollow —
+   it must not read as a tick or a cross at a glance. */
+.flight-check.is-info .flight-check-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--w-ink-3);
+}
+.flight-check-label { color: var(--w-ink-2); }
+.flight-check-value {
+  color: var(--w-ink);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+}
+.flight-check.is-fail .flight-check-value { color: var(--pen-flag); }
+.flight-check.is-inconclusive .flight-check-value { color: var(--pen-caution); }
+.flight-check.is-info .flight-check-value { color: var(--w-ink-2); }
+
+.flight-scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: 3;
+  margin: 0;
+  padding: 6px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--w-line);
+  border-radius: 999px;
+  background: var(--w-paper);
+  color: var(--w-ink-3);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: opacity 360ms ease;
+}
+.flight-scroll-hint[data-hidden="true"] { opacity: 0; }
+
+/* --- flight fallback: narrow widths and reduced motion ---------------- */
+
+.flight-degraded { padding: 64px 0 72px; }
+.flight-intro { padding: 0 24px 24px; text-align: center; }
+.flight-intro h2 { font-size: clamp(24px, 5vw, 34px); }
+.flight-carousel ol {
+  margin: 0;
+  padding: 0 24px 16px;
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(86vw, 380px);
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.flight-carousel ol::-webkit-scrollbar { display: none; }
+.flight-carousel > ol > li {
+  scroll-snap-align: center;
+  border: 1px solid var(--w-line);
+  border-radius: var(--pen-radius-md);
+  background: var(--w-paper);
+  overflow: hidden;
+}
+.flight-carousel figure { margin: 0; border-bottom: 1px solid var(--w-line); }
+.flight-carousel img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.flight-carousel-copy { padding: 18px; }
+.flight-carousel-copy h3 { margin: 0 0 8px; font-size: 18px; }
+.flight-carousel li[data-tone="clear"] .flight-eyebrow { color: var(--pen-clean); }
+.flight-carousel li[data-tone="flag"] .flight-eyebrow { color: var(--pen-flag); }
+.flight-carousel-hint {
+  margin: 4px 0 0;
+  padding: 0 24px;
+  color: var(--w-ink-3);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* --- features, workflow ----------------------------------------------- */
+
+.welcome-features,
+.welcome-workflow,
+.welcome-faq {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 104px 40px;
+  border-top: 1px solid var(--w-line);
+}
+.welcome-features header,
+.welcome-workflow header,
+.welcome-faq header { margin-bottom: 48px; }
+/* Section heads are a step down from the hero but keep the same character:
+   uppercase, tightly tracked, leading at 0.9. */
+.welcome-features h2,
+.welcome-workflow h2,
+.welcome-faq h2 {
+  font-size: clamp(30px, 4.4vw, 62px);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.welcome-features ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  /* Five capabilities sit in one row on a laptop and fold to a tidy 3/2 or 2/2
+     as the window narrows, rather than stranding a single card on its own. */
+  grid-template-columns: repeat(auto-fit, minmax(206px, 1fr));
+  gap: 12px;
+}
+.welcome-features li {
+  padding: 22px 20px 24px;
+  border: 1px solid var(--w-line);
+  border-radius: var(--pen-radius-md);
+  background: var(--w-paper);
+  transition: border-color 200ms ease, transform 220ms var(--w-ease);
+}
+.welcome-features li:hover { border-color: var(--w-line-strong); transform: translateY(-2px); }
+.welcome-features i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 16px;
+  border-radius: var(--pen-radius-sm);
+  background: var(--pen-blue-soft);
+  color: var(--pen-blue);
+}
+.welcome-features i svg { width: 18px; height: 18px; }
+.welcome-features h3 { margin: 0 0 8px; font-size: 15px; font-weight: 660; }
+.welcome-features p { margin: 0; color: var(--w-ink-2); font-size: 12.5px; line-height: 1.6; }
+
+.welcome-workflow ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.welcome-workflow li {
+  position: relative;
+  padding: 20px 18px 22px;
+  border: 1px solid var(--w-line);
+  border-top: 2px solid var(--pen-blue);
+  border-radius: 0 0 var(--pen-radius-md) var(--pen-radius-md);
+  background: var(--w-paper);
+}
+.welcome-step-n {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--w-ink-3);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+.welcome-workflow h3 { margin: 0 0 8px; font-size: 14px; font-weight: 660; }
+.welcome-workflow p { margin: 0; color: var(--w-ink-2); font-size: 12.5px; line-height: 1.6; }
+
+/* --- faq --------------------------------------------------------------- */
+
+.welcome-faq ul {
+  /* The list is held narrower for readable measure, but stays flush with the
+     left edge every other section aligns to. Centring it here was the one
+     thing breaking the page's vertical spine. */
+  max-width: 900px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--w-line);
+  border-radius: var(--pen-radius-md);
+  background: var(--w-paper);
+  overflow: hidden;
+}
+.welcome-faq-item + .welcome-faq-item { border-top: 1px solid var(--w-line); }
+.welcome-faq-item h3 { margin: 0; }
+.welcome-faq-item button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 0;
+  background: none;
+  color: var(--w-ink);
+  font-size: 14px;
+  font-weight: 640;
+  text-align: left;
+  cursor: pointer;
+}
+.welcome-faq-item button svg {
+  flex: none;
+  margin-left: auto;
+  width: 15px;
+  height: 15px;
+  color: var(--w-ink-3);
+  transition: transform 260ms var(--w-ease), color 180ms ease;
+}
+.welcome-faq-item[data-open="true"] button svg { transform: rotate(180deg); color: var(--pen-blue); }
+/* Collapsed by grid-template-rows so the answer animates without leaving the
+   DOM -- find-in-page still reaches it. */
+.welcome-faq-answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 300ms var(--w-ease), opacity 220ms ease;
+}
+.welcome-faq-item[data-open="true"] .welcome-faq-answer { grid-template-rows: 1fr; opacity: 1; }
+.welcome-faq-answer > p {
+  overflow: hidden;
+  margin: 0;
+  padding: 0 56px 0 20px;
+  color: var(--w-ink-2);
+  font-size: 13px;
+  line-height: 1.66;
+}
+.welcome-faq-item[data-open="true"] .welcome-faq-answer > p { padding-bottom: 20px; }
+
+/* --- footer ------------------------------------------------------------ */
+
+.welcome-footer {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 56px 40px 64px;
+  border-top: 1px solid var(--w-line);
+  display: grid;
+  gap: 32px;
+}
+.welcome-footer-brand { display: flex; align-items: center; gap: 12px; }
+.welcome-footer-brand strong { font-size: 14px; }
+.welcome-footer-brand p { margin: 2px 0 0; color: var(--w-ink-3); font-size: 11px; }
+.welcome-footer nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 620px;
+}
+.welcome-footer nav h4 {
+  margin: 0 0 12px;
+  color: var(--w-ink-3);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.welcome-footer nav a,
+.welcome-footer nav span {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--w-ink-2);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.welcome-footer nav a:hover { color: var(--pen-blue); }
+.welcome-footer-legal {
+  margin: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--w-line);
+  color: var(--w-ink-3);
+  font-size: 11.5px;
+}
+
+/* --- responsive -------------------------------------------------------- */
+
+/* Laptop is the design target; these only keep smaller windows honest. */
+@media (max-width: 1280px) {
+  .flight-panel { right: 28px; width: 344px; }
+  .flight-rail { left: 22px; }
+}
+@media (max-width: 1080px) {
+  .welcome-workflow ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .welcome-hero { padding: 64px 24px 56px; }
+  .welcome-features,
+  .welcome-workflow,
+  .welcome-faq { padding: 64px 24px; }
+  .welcome-topbar { padding: 0 20px; }
+  .welcome-footer { padding: 40px 24px 48px; }
+  .welcome-footer nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome *,
+  .welcome *::before,
+  .welcome *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

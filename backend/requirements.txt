@@ -12,3 +12,10 @@ pypdf>=4.0.0
 matplotlib>=3.8.0
 pdfplumber>=0.11.0
 pytesseract>=0.3.10
+openpyxl>=3.1.0
+# Enables face-identity matching across a batch's document photos (see
+# backend/photo_identity.py). Without these, extract_photo.py falls back to a
+# plain OpenCV cascade that has no identity embeddings, and batch photo
+# duplicate detection silently reports nothing rather than failing.
+insightface>=0.7.3
+onnxruntime>=1.17.0

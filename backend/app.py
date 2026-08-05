@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import secrets
 import json
 from io import BytesIO
 from datetime import datetime, timezone
@@ -27,6 +26,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator
 
+from .access_control import AccessDenied, SESSION_COOKIE, SESSION_TTL_SECONDS, SessionManager
+from .app_paths import ROOT, data_dir, is_packaged
 from .models import (
     BatchState,
     BatchSummary,
@@ -36,8 +37,11 @@ from .models import (
     PreflightFile,
     PreflightReport,
     PriorScreening,
+    ProjectState,
 )
-from .reporting import batch_csv, case_report, render_batch_html, render_case_html
+from .photo_identity import batch_photo_duplicates
+from .qr_identity import batch_qr_duplicates
+from .reporting import batch_csv, batch_xlsx, case_report, render_batch_html, render_case_html
 from .sample_case import SAMPLE_ANALYZERS, SAMPLE_FILENAME, build_sample_document
 from .service import (
     JobStore,
@@ -56,32 +60,26 @@ MAX_BATCH_FILES = 50
 MAX_IMAGE_PIXELS = 50_000_000
 SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 SUPPORTED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP", "TIFF"}
-ROOT = Path(__file__).resolve().parents[1]
-store = JobStore(ROOT / "backend" / "data")
-vlm_documents = VLMDocumentStore(ROOT / "backend" / "data" / "vlm-documents")
+DATA_DIR = data_dir()
+store = JobStore(DATA_DIR)
+vlm_documents = VLMDocumentStore(DATA_DIR / "vlm-documents")
+sessions = SessionManager(DATA_DIR)
 
-# Shared access code for the demo deployment. When unset, the API is open
-# (local development). Clients authenticate once via POST /api/v1/session,
-# which stores an HTTP-only cookie, or send X-Access-Code per request.
-ACCESS_CODE = os.getenv("ACCESS_CODE", "").strip()
-SESSION_COOKIE = "dss_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "").strip() == "1"
 
 
 def require_access(request: Request) -> None:
-    if not ACCESS_CODE:
-        return
-    supplied = request.headers.get("x-access-code") or request.cookies.get(SESSION_COOKIE) or ""
-    if not secrets.compare_digest(supplied, ACCESS_CODE):
-        raise HTTPException(status_code=401, detail="Sign in with your access code to continue.")
+    user = sessions.authenticate(request.cookies.get(SESSION_COOKIE, ""))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Sign in to continue.")
+    request.state.user = user
 
 
 class ReviewRequest(BaseModel):
     decision: Literal["verified", "needs_investigation", "inconclusive", "escalated"]
     notes: str = Field(default="", max_length=4000)
-    # Free text, not an account. There are no user accounts in this build, so an
-    # escalation records who the reviewer says they handed the case to; it does
-    # not notify or assign anyone.
+    # Kept for compatibility with existing clients. The authenticated account
+    # is always stamped server-side and cannot be replaced by this field.
     reviewer: str = Field(default="", max_length=120)
     assigned_to: str = Field(default="", max_length=120)
 
@@ -98,7 +96,22 @@ class UnanalyzableRequest(BaseModel):
 
 
 class SessionRequest(BaseModel):
-    access_code: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=512)
+
+
+class ProjectNameRequest(BaseModel):
+    """Shared by create and rename — the only field either one needs."""
+
+    name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def name_must_contain_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Give the project a name.")
+        return cleaned
 
 
 class DocumentQuestionRequest(BaseModel):
@@ -118,19 +131,21 @@ app = FastAPI(
     title="Document Suspicion System API",
     version=APP_VERSION,
     description="Queues PDF and image screening checks and returns their individual reports.",
+    docs_url=None if is_packaged() else "/docs",
+    redoc_url=None if is_packaged() else "/redoc",
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         origin.strip()
         for origin in os.getenv(
-            "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,https://document-suspicion-system.dacup1-2026-5.chatgpt.site"
+            "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
         ).split(",")
         if origin.strip()
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type"],
 )
 
 api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_access)])
@@ -147,34 +162,50 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/v1/session")
-def session_state(request: Request) -> dict[str, bool]:
-    if not ACCESS_CODE:
-        return {"required": False, "authenticated": True}
-    supplied = request.cookies.get(SESSION_COOKIE) or ""
-    return {"required": True, "authenticated": secrets.compare_digest(supplied, ACCESS_CODE)}
+def session_state(request: Request) -> dict[str, object]:
+    token = request.cookies.get(SESSION_COOKIE, "")
+    user = sessions.authenticate(token)
+    return {
+        "required": sessions.required,
+        "authenticated": user is not None,
+        "user": user.public_dict() if user else None,
+        # Lets the app warn that the authorization service is unreachable and
+        # access will stop when the grace window runs out, rather than failing
+        # without notice.
+        "connectivity": sessions.connectivity(token),
+    }
 
 
 @app.post("/api/v1/session")
-def create_session(body: SessionRequest, response: Response) -> dict[str, bool]:
-    if ACCESS_CODE:
-        if not secrets.compare_digest(body.access_code, ACCESS_CODE):
-            raise HTTPException(status_code=401, detail="That access code is not recognized.")
+def create_session(body: SessionRequest, response: Response) -> dict[str, object]:
+    if sessions.required:
+        try:
+            token, user = sessions.create(body.email, body.password)
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         response.set_cookie(
             SESSION_COOKIE,
-            ACCESS_CODE,
+            token,
             httponly=True,
-            samesite="lax",
+            samesite="strict",
             secure=COOKIE_SECURE,
-            max_age=7 * 86400,
+            max_age=SESSION_TTL_SECONDS,
             path="/",
         )
-    return {"required": bool(ACCESS_CODE), "authenticated": True}
+    else:
+        user = sessions.authenticate("")
+    return {
+        "required": sessions.required,
+        "authenticated": True,
+        "user": user.public_dict() if user else None,
+    }
 
 
 @app.delete("/api/v1/session")
-def end_session(response: Response) -> dict[str, bool]:
+def end_session(request: Request, response: Response) -> dict[str, object]:
+    sessions.delete(request.cookies.get(SESSION_COOKIE, ""))
     response.delete_cookie(SESSION_COOKIE, path="/")
-    return {"required": bool(ACCESS_CODE), "authenticated": not ACCESS_CODE}
+    return {"required": sessions.required, "authenticated": not sessions.required, "user": None}
 
 
 @api.get("/analyzers")
@@ -468,6 +499,53 @@ async def create_job(
     return JobState.model_validate(job)
 
 
+def _project_or_404(project_id: str) -> dict[str, object]:
+    project = next((item for item in store.list_projects() if item["id"] == project_id), None)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return project
+
+
+@api.post("/projects", status_code=status.HTTP_201_CREATED, response_model=ProjectState)
+def create_project(body: ProjectNameRequest) -> ProjectState:
+    project = store.create_project(body.name)
+    return ProjectState.model_validate(_project_or_404(project["id"]))
+
+
+@api.get("/projects", response_model=list[ProjectState])
+def list_projects() -> list[ProjectState]:
+    return [ProjectState.model_validate(item) for item in store.list_projects()]
+
+
+@api.get("/projects/{project_id}", response_model=ProjectState)
+def get_project(project_id: str) -> ProjectState:
+    return ProjectState.model_validate(_project_or_404(project_id))
+
+
+@api.post("/projects/{project_id}/rename", response_model=ProjectState)
+def rename_project(project_id: str, body: ProjectNameRequest) -> ProjectState:
+    try:
+        renamed = store.rename_project(project_id, body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if renamed is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return ProjectState.model_validate(_project_or_404(project_id))
+
+
+@api.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(project_id: str) -> Response:
+    if not store.delete_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@api.get("/projects/{project_id}/batches", response_model=list[BatchSummary])
+def list_project_batches(project_id: str) -> list[BatchSummary]:
+    _project_or_404(project_id)
+    return [BatchSummary.model_validate(item) for item in store.list_project_batches(project_id)]
+
+
 @api.post("/batches", status_code=status.HTTP_202_ACCEPTED, response_model=BatchState)
 async def create_batch(
     files: Annotated[list[UploadFile], File(description="PDF or image documents to screen together")],
@@ -475,6 +553,7 @@ async def create_batch(
     settings: Annotated[str | None, Form()] = None,
     profile: Annotated[str | None, Form()] = None,
     batch_name: Annotated[str | None, Form()] = None,
+    project_id: Annotated[str | None, Form()] = None,
 ) -> BatchState:
     if not files:
         raise HTTPException(status_code=422, detail="Select at least one PDF or image document.")
@@ -488,6 +567,7 @@ async def create_batch(
             uploads, _requested_analyzers(analyzers),
             _requested_settings(settings), _requested_profile(profile),
             str(batch_name or "").strip()[:80] or None,
+            str(project_id or "").strip() or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -599,7 +679,7 @@ def get_artifact(job_id: str, analyzer: str, filename: str) -> FileResponse:
 
 
 @api.post("/jobs/{job_id}/review")
-def save_review(job_id: str, review: ReviewRequest) -> dict[str, object]:
+def save_review(job_id: str, review: ReviewRequest, request: Request) -> dict[str, object]:
     job = store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -607,6 +687,9 @@ def save_review(job_id: str, review: ReviewRequest) -> dict[str, object]:
     # Without them a verdict cannot be reproduced once a detector changes.
     saved = {
         **review.model_dump(),
+        "reviewer": request.state.user.display_name,
+        "reviewer_id": request.state.user.id,
+        "reviewer_email": request.state.user.email,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
         "app_version": APP_VERSION,
         "detectors_version": DETECTORS_VERSION,
@@ -751,6 +834,22 @@ def batch_report_csv(batch_id: str) -> Response:
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{_report_filename(batch_id[:8], "csv")}"'
+        },
+    )
+
+
+@api.get("/batches/{batch_id}/report.xlsx", response_class=Response)
+def batch_report_xlsx(batch_id: str) -> Response:
+    state = store.batch_state(batch_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Batch not found.")
+    photo_duplicates = batch_photo_duplicates(state["jobs"], store.data_dir)
+    qr_duplicates = batch_qr_duplicates(state["jobs"])
+    return Response(
+        content=batch_xlsx(state, photo_duplicates, qr_duplicates),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_report_filename(batch_id[:8], "xlsx")}"'
         },
     )
 

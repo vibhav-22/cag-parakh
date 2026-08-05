@@ -32,6 +32,51 @@ TIMEOUT_SECONDS = 360
 QR_DPIS = os.getenv("QR_DPIS", "300").strip()
 QR_ROTATIONS = os.getenv("QR_ROTATIONS", "0,90").strip()
 
+# Escalation for when the fast pass finds nothing. Measured on a real UP board
+# marksheet in batch dc13f4ce…: its QR sits on page 5 and decodes only at
+# 350 DPI, rotation 270. The fast pass (300 DPI, rotations 0/90) missed it
+# entirely, and so reported "expected at least 1 QR code, found 0" — a check
+# failure caused by the search space, not by the document.
+#
+# 300 DPI does not find that code at *any* rotation, so widening rotations
+# alone is not enough; the DPI sweep is what matters. Paying for the wide
+# sweep only after a miss keeps documents whose code decodes on the first
+# pass fast, while making "no QR code found" mean the document, not the
+# settings. Set QR_DEEP_RESCAN=0 to disable.
+QR_DEEP_DPIS = os.getenv("QR_DEEP_DPIS", "250,350,450").strip()
+QR_DEEP_ROTATIONS = os.getenv("QR_DEEP_ROTATIONS", "0,90,180,270").strip()
+QR_DEEP_RESCAN = os.getenv("QR_DEEP_RESCAN", "1").strip() not in ("0", "false", "no")
+
+# The wide sweep needs its own budget. TIMEOUT_SECONDS (360) sizes a single
+# fast analyzer pass; the deep sweep re-renders every page at each rung of the
+# ladder and runs 16 decode passes per render. Measured on the 5-page
+# marksheet with a 5-rung ladder: 474s — which silently blew the 360s budget,
+# so the escalation was killed and the fast pass's "found 0" stood.
+QR_DEEP_TIMEOUT_SECONDS = max(60, int(os.getenv("QR_DEEP_TIMEOUT_SECONDS", "1200")))
+
+# How hard the QR check looks before it will report a document as having no
+# code. The trade is real in both directions: the fast pass alone decoded the
+# codes in most documents screened so far, but missed a genuine UP board
+# marksheet code that needed a DPI and rotation the fast pass never tried.
+#
+#   low    - fast pass only. Cheapest. "No QR code" may mean "not found yet".
+#   medium - fast pass, then the wide sweep only if it found nothing.
+#   high   - always run the wide sweep, and widen the ladder further.
+#
+# `rescan` is whether a miss escalates; `always` skips the fast pass short
+# circuit; `multipliers` are applied to the document's native scan resolution
+# (see qr_dpi_ladder).
+QR_EFFORT_LEVELS: dict[str, dict[str, Any]] = {
+    "low": {"rescan": False, "always": False, "multipliers": ()},
+    "medium": {"rescan": True, "always": False, "multipliers": (1.0, 1.2, 1.4, 1.6, 1.8)},
+    "high": {
+        "rescan": True,
+        "always": True,
+        "multipliers": (0.8, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0),
+    },
+}
+QR_DEFAULT_EFFORT = "medium"
+
 # Run a job's detectors concurrently. Default to the analyzer count (capped),
 # leaving headroom on the box for other jobs.
 ANALYZER_WORKERS = max(1, int(os.getenv("ANALYZER_WORKERS", "8")))
@@ -52,7 +97,6 @@ ANALYZERS: dict[str, dict[str, Any]] = {
     "qr_presence": {"script": "tools/qr_analysis/qr_exists.py", "kind": "json", "flag": "--out", "description": "QR code presence and decoded payloads"},
     "font_analysis": {"script": "tools/font_analysis/pp.py", "kind": "font", "description": "Embedded font, typeface, and font-usage extraction"},
     "moire": {"script": "tools/moire_analysis/moire_scan.py", "kind": "json", "flag": "--json", "description": "Recapture and moire-pattern screening"},
-    "scanner_noise": {"script": "tools/capture_analysis/scanner_noise/scanner_noise_fingerprint_check.py", "kind": "report_dir", "report": "scanner_noise_fingerprint_report.json", "description": "Page and region scanner-noise consistency"},
     "same_phone": {"script": "tools/capture_analysis/same_phone/same_phone_pdf_check.py", "kind": "report_dir", "report": "same_phone_pdf_report.json", "description": "Same-phone/capture-workflow compatibility"},
     "tamper_scan": {"script": "tools/tamper_analysis/tamper_detect_local.py", "kind": "whitener", "description": "Correction-fluid (whitener) probability and region detection"},
     "readability": {"script": "tools/readability_analysis/pdf_readability_checker.py", "kind": "json", "flag": "--output", "description": "Machine readability and scan-quality checks"},
@@ -69,18 +113,23 @@ DEFAULT_ANALYSIS_SETTINGS: dict[str, dict[str, Any]] = {
         "max_pages": 0,
         "rotations": [0, 90],
         "stop_after_first": False,
-    },
-    "scanner_noise": {
-        "dpi": 220,
-        "grid": 4,
-        "max_analysis_side": 1800,
-        "local_regions": True,
+        # How hard to look before concluding a document has no QR code. See
+        # QR_EFFORT_LEVELS. "medium" is the default: the fast pass first, and
+        # the wide sweep only when the fast pass finds nothing.
+        "effort": "medium",
     },
     "same_phone": {"dpi": 180, "max_analysis_side": 1800},
     "tamper_scan": {"dpi": 200, "review_threshold": 0.35, "annotate_all": False},
     "readability": {"dpi": 150, "noise_threshold": 8.0, "sharpness_threshold": 500.0},
     "signature": {"dpi": 200, "confidence": 0.55, "min_signatures": 0},
+    # How hard to look for document photos. See PHOTO_EFFORT_LEVELS in
+    # tools/photo_analysis/extract_photo.py. "medium" is the default and is the
+    # behaviour this detector always had: the embedded-image pass first, and a
+    # full page render only when that finds nothing.
+    "photo_detection": {"effort": "medium"},
 }
+PHOTO_EFFORT_LEVELS = ("low", "medium", "high")
+PHOTO_DEFAULT_EFFORT = "medium"
 
 
 def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
@@ -104,18 +153,20 @@ def sanitize_analysis_settings(value: Any) -> dict[str, dict[str, Any]]:
     settings = json.loads(json.dumps(DEFAULT_ANALYSIS_SETTINGS))
     metadata = supplied.get("metadata") if isinstance(supplied.get("metadata"), dict) else {}
     qr = supplied.get("qr_presence") if isinstance(supplied.get("qr_presence"), dict) else {}
-    scanner = supplied.get("scanner_noise") if isinstance(supplied.get("scanner_noise"), dict) else {}
     phone = supplied.get("same_phone") if isinstance(supplied.get("same_phone"), dict) else {}
     tamper = supplied.get("tamper_scan") if isinstance(supplied.get("tamper_scan"), dict) else {}
     readability = supplied.get("readability") if isinstance(supplied.get("readability"), dict) else {}
     signature = supplied.get("signature") if isinstance(supplied.get("signature"), dict) else {}
+    photo = supplied.get("photo_detection") if isinstance(supplied.get("photo_detection"), dict) else {}
 
     settings["metadata"]["dpi"] = _bounded_int(metadata.get("dpi"), 200, 96, 400)
+    effort = str(qr.get("effort", QR_DEFAULT_EFFORT)).strip().lower()
     settings["qr_presence"].update({
         "dpi": _bounded_int(qr.get("dpi"), 300, 96, 600),
         "min_codes": _bounded_int(qr.get("min_codes"), 1, 0, 20),
         "max_pages": _bounded_int(qr.get("max_pages"), 0, 0, 100),
         "stop_after_first": bool(qr.get("stop_after_first", False)),
+        "effort": effort if effort in QR_EFFORT_LEVELS else QR_DEFAULT_EFFORT,
     })
     rotations_value = qr.get("rotations", [0, 90])
     if isinstance(rotations_value, str):
@@ -128,12 +179,6 @@ def sanitize_analysis_settings(value: Any) -> dict[str, dict[str, Any]]:
                 rotations.append(rotation)
     settings["qr_presence"]["rotations"] = rotations or [0, 90]
 
-    settings["scanner_noise"].update({
-        "dpi": _bounded_int(scanner.get("dpi"), 220, 96, 400),
-        "grid": _bounded_int(scanner.get("grid"), 4, 2, 8),
-        "max_analysis_side": _bounded_int(scanner.get("max_analysis_side"), 1800, 800, 4000),
-        "local_regions": bool(scanner.get("local_regions", True)),
-    })
     settings["same_phone"].update({
         "dpi": _bounded_int(phone.get("dpi"), 180, 96, 400),
         "max_analysis_side": _bounded_int(phone.get("max_analysis_side"), 1800, 800, 4000),
@@ -153,6 +198,10 @@ def sanitize_analysis_settings(value: Any) -> dict[str, dict[str, Any]]:
         "confidence": _bounded_float(signature.get("confidence"), 0.55, 0.05, 0.95),
         "min_signatures": _bounded_int(signature.get("min_signatures"), 0, 0, 20),
     })
+    photo_effort = str(photo.get("effort", PHOTO_DEFAULT_EFFORT)).strip().lower()
+    settings["photo_detection"]["effort"] = (
+        photo_effort if photo_effort in PHOTO_EFFORT_LEVELS else PHOTO_DEFAULT_EFFORT
+    )
     return settings
 
 
@@ -226,6 +275,79 @@ def pdf_page_sizes(path: Path) -> dict[int, tuple[float, float]]:
             index + 1: (float(page.rect.width), float(page.rect.height))
             for index, page in enumerate(document)
         }
+
+
+def native_scan_dpi(path: Path) -> int | None:
+    """The highest resolution any embedded page scan actually holds, in DPI.
+
+    A scanned page carries one big raster image; how many pixels it has per
+    page inch is the only resolution that exists in the file. Rendering above
+    it interpolates and below it discards modules. Returns None for a PDF with
+    no usable raster page image (a born-digital text PDF), where the caller
+    should keep its fixed ladder.
+
+    The image is measured against the page box in whichever orientation fits:
+    these scans are frequently landscape rasters placed on a portrait page via
+    a rotation transform, and measuring width-against-width would report a
+    wildly anisotropic DPI that means nothing.
+    """
+
+    best: float = 0.0
+    try:
+        with fitz.open(path) as document:
+            for page in document:
+                width_in = float(page.rect.width) / 72.0
+                height_in = float(page.rect.height) / 72.0
+                if width_in <= 0 or height_in <= 0:
+                    continue
+                for info in page.get_images(full=True):
+                    try:
+                        image = document.extract_image(int(info[0]))
+                    except (KeyError, RuntimeError, ValueError):
+                        continue
+                    pixel_width = float(image.get("width") or 0)
+                    pixel_height = float(image.get("height") or 0)
+                    if pixel_width <= 0 or pixel_height <= 0:
+                        continue
+                    upright = min(pixel_width / width_in, pixel_height / height_in)
+                    rotated = min(pixel_width / height_in, pixel_height / width_in)
+                    best = max(best, upright, rotated)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if best < 50 or best > 1200:
+        return None
+    return int(round(best))
+
+
+def qr_dpi_ladder(path: Path, effort: str = QR_DEFAULT_EFFORT) -> str | None:
+    """DPI values to try for QR decoding, derived from the document's own scan.
+
+    Measured on the UP board marksheet in batch dc13f4ce… (page 5, native
+    ~250 DPI), decoding succeeded only at 350 and 400 DPI — 250, 300, 450,
+    500 and 600 all failed, and no adaptive-threshold block size rescued the
+    ones that failed. The usable window was roughly 1.4x-1.6x the resolution
+    the scan actually holds: below it there are too few pixels per QR module
+    for the decoder to sample, and above it the render is interpolating pixels
+    the scan never contained.
+
+    A fixed absolute ladder cannot hit that window across documents, because
+    it moves with each scan's own resolution. This returns the native
+    resolution plus multiples spanning that window.
+    """
+
+    multipliers = QR_EFFORT_LEVELS.get(effort, QR_EFFORT_LEVELS[QR_DEFAULT_EFFORT])["multipliers"]
+    if not multipliers:
+        return None
+    native = native_scan_dpi(path)
+    if native is None:
+        return None
+    ladder: list[int] = []
+    for multiplier in multipliers:
+        value = int(round(native * multiplier / 10.0) * 10)
+        value = max(150, min(900, value))
+        if value not in ladder:
+            ladder.append(value)
+    return ",".join(str(value) for value in ladder)
 
 
 def _load_whitener_result(
@@ -327,6 +449,7 @@ class JobStore:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, dict[str, Any]] = {}
         self._batches: dict[str, dict[str, Any]] = {}
+        self._projects: dict[str, dict[str, Any]] = {}
         # sha256 -> job ids, oldest first. Powers the intake pre-flight warning
         # that this exact file has been screened before.
         self._by_digest: dict[str, list[str]] = {}
@@ -338,6 +461,9 @@ class JobStore:
 
     def _batch_path(self, batch_id: str) -> Path:
         return self.data_dir / f"{batch_id}.batch.json"
+
+    def _project_path(self, project_id: str) -> Path:
+        return self.data_dir / f"{project_id}.project.json"
 
     @staticmethod
     def _write_state(path: Path, payload: dict[str, Any]) -> None:
@@ -378,6 +504,14 @@ class JobStore:
             self._jobs[job["id"]] = job
             if job.get("sha256"):
                 self._by_digest.setdefault(str(job["sha256"]), []).append(job["id"])
+        for path in sorted(self.data_dir.glob("*.project.json")):
+            try:
+                project = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(project, dict) or not project.get("id"):
+                continue
+            self._projects[project["id"]] = project
         for path in sorted(self.data_dir.glob("*.batch.json")):
             try:
                 batch = json.loads(path.read_text(encoding="utf-8"))
@@ -389,6 +523,12 @@ class JobStore:
                 job_id for job_id in batch.get("job_ids", []) if job_id in self._jobs
             ]
             if batch["job_ids"]:
+                # A batch whose project file is gone is unfiled, not lost. Self-
+                # heals a project deleted out of band; delete_project already
+                # does this in-process.
+                if batch.get("project_id") and batch["project_id"] not in self._projects:
+                    batch["project_id"] = None
+                    self._write_state(self._batch_path(batch["id"]), batch)
                 self._batches[batch["id"]] = batch
 
     def _migrate_legacy_checks(self, job: dict[str, Any]) -> bool:
@@ -510,9 +650,16 @@ class JobStore:
         settings: dict[str, dict[str, Any]] | None = None,
         profile: dict[str, Any] | None = None,
         name: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         """Create one job per upload. A third tuple element is the file digest."""
 
+        # Validate before creating a single job: a project deleted mid-upload
+        # must not leave orphaned job files behind it.
+        if project_id:
+            with self._lock:
+                if project_id not in self._projects:
+                    raise ValueError("That project no longer exists.")
         jobs = [
             self.create(
                 item[0], item[1], requested, settings,
@@ -525,6 +672,7 @@ class JobStore:
             "id": uuid.uuid4().hex,
             "name": cleaned_name or _default_batch_name([job["filename"] for job in jobs]),
             "created_at": _now(),
+            "project_id": project_id,
             "job_ids": [job["id"] for job in jobs],
         }
         with self._lock:
@@ -551,9 +699,35 @@ class JobStore:
             "id": batch["id"],
             "name": batch.get("name") or _default_batch_name([job["filename"] for job in jobs]),
             "created_at": batch["created_at"],
+            "project_id": batch.get("project_id"),
             "status": self._batch_status(jobs),
             "document_count": len(jobs),
             "jobs": jobs,
+        }
+
+    @classmethod
+    def _batch_summary(cls, batch: dict[str, Any], jobs: list[dict[str, Any]]) -> dict[str, Any]:
+        """The BatchSummary projection. One definition, shared by the library
+        list and the per-project list, so the two can never disagree."""
+
+        return {
+            "id": batch["id"],
+            "name": batch.get("name") or _default_batch_name([job["filename"] for job in jobs]),
+            "created_at": batch["created_at"],
+            "project_id": batch.get("project_id"),
+            "status": cls._batch_status(jobs),
+            "document_count": len(jobs),
+            "completed_documents": sum(job["status"] == "completed" for job in jobs),
+            # A document marked unanalyzable has left the review queue, so it
+            # must stop counting as outstanding flagged work.
+            "flagged_documents": sum(
+                not job.get("unanalyzable")
+                and any(
+                    result.get("outcome") in ("review", "error")
+                    for result in job.get("results", {}).values()
+                )
+                for job in jobs
+            ),
         }
 
     def list_batches(self) -> list[dict[str, Any]]:
@@ -564,25 +738,97 @@ class JobStore:
             jobs = [job for job_id in batch["job_ids"] if (job := self.get(job_id))]
             if not jobs:
                 continue
-            summaries.append({
-                "id": batch["id"],
-                "name": batch.get("name") or _default_batch_name([job["filename"] for job in jobs]),
-                "created_at": batch["created_at"],
-                "status": self._batch_status(jobs),
-                "document_count": len(jobs),
-                "completed_documents": sum(job["status"] == "completed" for job in jobs),
-                # A document marked unanalyzable has left the review queue, so it
-                # must stop counting as outstanding flagged work.
-                "flagged_documents": sum(
-                    not job.get("unanalyzable")
-                    and any(
-                        result.get("outcome") in ("review", "error")
-                        for result in job.get("results", {}).values()
-                    )
-                    for job in jobs
-                ),
-            })
+            summaries.append(self._batch_summary(batch, jobs))
         return summaries
+
+    def list_project_batches(self, project_id: str) -> list[dict[str, Any]]:
+        """Batches filed under one project, newest first. Same shape as
+        list_batches() — built from the same _batch_summary()."""
+
+        with self._lock:
+            batches = [
+                dict(batch) for batch in self._batches.values()
+                if batch.get("project_id") == project_id
+            ]
+        summaries = []
+        for batch in sorted(batches, key=lambda item: str(item["created_at"]), reverse=True):
+            jobs = [job for job_id in batch["job_ids"] if (job := self.get(job_id))]
+            if not jobs:
+                continue
+            summaries.append(self._batch_summary(batch, jobs))
+        return summaries
+
+    def create_project(self, name: str) -> dict[str, Any]:
+        """Create an empty project. Raises ValueError on a blank name."""
+
+        cleaned = (name or "").strip()[:80]
+        if not cleaned:
+            raise ValueError("Give the project a name.")
+        now = _now()
+        project = {"id": uuid.uuid4().hex, "name": cleaned, "created_at": now, "updated_at": now}
+        with self._lock:
+            self._projects[project["id"]] = project
+            self._write_state(self._project_path(project["id"]), project)
+        return project.copy()
+
+    def project(self, project_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            project = self._projects.get(project_id)
+            return dict(project) if project else None
+
+    def rename_project(self, project_id: str, name: str) -> dict[str, Any] | None:
+        """Rename a project. None when unknown; ValueError on a blank name."""
+
+        cleaned = (name or "").strip()[:80]
+        if not cleaned:
+            raise ValueError("Give the project a name.")
+        with self._lock:
+            project = self._projects.get(project_id)
+            if project is None:
+                return None
+            project["name"] = cleaned
+            project["updated_at"] = _now()
+            self._write_state(self._project_path(project_id), project)
+            return project.copy()
+
+    def delete_project(self, project_id: str) -> bool:
+        """Delete a project and unfile — never delete — the batches inside it."""
+
+        with self._lock:
+            if project_id not in self._projects:
+                return False
+            del self._projects[project_id]
+            for batch in self._batches.values():
+                if batch.get("project_id") == project_id:
+                    batch["project_id"] = None
+                    self._write_state(self._batch_path(batch["id"]), batch)
+            self._project_path(project_id).unlink(missing_ok=True)
+            return True
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        """Projects newest first, each with a live batch count and last
+        activity, derived from list_batches() so the two views can never
+        disagree about how many batches a project holds."""
+
+        with self._lock:
+            projects = [dict(project) for project in self._projects.values()]
+        counts: dict[str, int] = {}
+        latest: dict[str, str] = {}
+        for summary in self.list_batches():  # lock already released
+            project_id = summary.get("project_id")
+            if not project_id:
+                continue
+            counts[project_id] = counts.get(project_id, 0) + 1
+            if project_id not in latest:  # list_batches() is newest-first
+                latest[project_id] = summary["created_at"]
+        return [
+            {
+                **project,
+                "batch_count": counts.get(project["id"], 0),
+                "last_activity_at": latest.get(project["id"]),
+            }
+            for project in sorted(projects, key=lambda item: str(item["created_at"]), reverse=True)
+        ]
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -690,14 +936,6 @@ def _analyzer_command(
             command += ["--max-pages", str(settings["max_pages"])]
         if settings["stop_after_first"]:
             command.append("--stop-after-first")
-    elif analyzer == "scanner_noise":
-        command += [
-            "--dpi", str(settings["dpi"]),
-            "--grid", str(settings["grid"]),
-            "--max-analysis-side", str(settings["max_analysis_side"]),
-        ]
-        if not settings["local_regions"]:
-            command.append("--page-only")
     elif analyzer == "same_phone":
         command += ["--dpi", str(settings["dpi"]), "--max-analysis-side", str(settings["max_analysis_side"])]
     elif analyzer == "tamper_scan":
@@ -711,7 +949,10 @@ def _analyzer_command(
             "--sharpness-threshold", str(settings["sharpness_threshold"]),
         ]
     elif analyzer == "photo_detection":
-        command += ["--save-dir", str(report_dir)]
+        command += [
+            "--save-dir", str(report_dir),
+            "--effort", str(settings.get("effort") or PHOTO_DEFAULT_EFFORT),
+        ]
     elif analyzer == "signature":
         command += [
             "--dpi", str(settings["dpi"]),
@@ -729,6 +970,65 @@ def _analyzer_command(
     elif kind == "whitener":
         command += ["--out", str(report_dir)]
     return command, output_path
+
+
+def _deep_qr_rescan(
+    script: Path,
+    input_path: Path,
+    output_path: Path,
+    report_dir: Path,
+    settings: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str]:
+    """Re-scan for QR codes over a wider DPI/rotation sweep.
+
+    Returns `(result, outcome)`. `result` is the deep payload only when it
+    actually decoded something, so a genuinely QR-free document keeps the fast
+    pass's result and a document whose code needed a higher DPI stops being
+    reported as having none. `outcome` is one of "ok", "empty", "timeout" or
+    "error", and the caller records it: a sweep that was killed part-way is
+    not evidence of absence, and the report must not describe it as one.
+
+    A failure never turns a completed check into an error — the fast pass's
+    result stands — but it must not be silently indistinguishable from a
+    completed search either.
+    """
+
+    # Prefer a ladder derived from this document's own scan resolution; the
+    # fixed one is the fallback for born-digital PDFs with no raster page.
+    effort = str(settings.get("effort") or QR_DEFAULT_EFFORT)
+    dpis = qr_dpi_ladder(input_path, effort) or QR_DEEP_DPIS
+    command = [
+        sys.executable, str(script), str(input_path),
+        "--dpi", dpis,
+        "--rotations", *QR_DEEP_ROTATIONS.split(","),
+        "--save-crops", str(report_dir),
+        "--out", str(output_path),
+    ]
+    if settings.get("max_pages"):
+        command += ["--max-pages", str(settings["max_pages"])]
+    try:
+        subprocess.run(
+            command, cwd=script.parent, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=QR_DEEP_TIMEOUT_SECONDS, check=False,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", **_CHILD_THREAD_LIMITS},
+        )
+        if not output_path.exists():
+            return None, "error"
+        result = json.loads(output_path.read_text(encoding="utf-8"))
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except (OSError, json.JSONDecodeError):
+        return None, "error"
+    finally:
+        output_path.unlink(missing_ok=True)
+    if not isinstance(result, dict):
+        return None, "error"
+    if not int(result.get("qr_count") or 0):
+        return None, "empty"
+    result["deep_rescan"] = True
+    result["deep_rescan_dpis"] = dpis
+    result["deep_rescan_rotations"] = QR_DEEP_ROTATIONS
+    return result, "ok"
 
 
 def _run_analyzer(
@@ -782,6 +1082,30 @@ def _run_analyzer(
         if kind == "font":
             output_path.with_suffix(".csv").unlink(missing_ok=True)
 
+    if analyzer == "qr_presence" and QR_DEEP_RESCAN and isinstance(raw_result, dict):
+        level = QR_EFFORT_LEVELS.get(
+            str(settings.get("effort") or QR_DEFAULT_EFFORT), QR_EFFORT_LEVELS[QR_DEFAULT_EFFORT]
+        )
+        found = int(raw_result.get("qr_count") or 0)
+        # "high" sweeps even when the fast pass already found something, since
+        # a document can carry a second code the fast pass could not reach.
+        should_rescan = (
+            level["rescan"]
+            and raw_result.get("status") != "error"
+            and (not found or level["always"])
+        )
+        if should_rescan:
+            deep, deep_outcome = _deep_qr_rescan(
+                script, input_path, output_path, report_dir, settings
+            )
+            if deep is not None and int(deep.get("qr_count") or 0) >= found:
+                raw_result = deep
+            elif deep_outcome in ("timeout", "error"):
+                # The wide sweep did not finish. "No QR code" from this run is
+                # a statement about the search being cut short, not about the
+                # document, and the verdict has to be able to say so.
+                raw_result["deep_rescan_incomplete"] = deep_outcome
+
     if analyzer == "qr_presence" and isinstance(raw_result, dict):
         artifacts: list[str] = []
         for hit in raw_result.get("hits", []):
@@ -796,6 +1120,9 @@ def _run_analyzer(
             hit["crop_path"] = relative_crop
             artifacts.append(relative_crop)
         raw_result["artifacts"] = list(dict.fromkeys(artifacts))
+        # A "no QR code" reading means something different at each effort
+        # level, so the report has to carry which one produced it.
+        raw_result["search_effort"] = str(settings.get("effort") or QR_DEFAULT_EFFORT)
         minimum = int(settings["min_codes"])
         count = int(raw_result.get("qr_count") or 0)
         raw_result["expected_min_codes"] = minimum

@@ -33,7 +33,7 @@ const STORAGE_KEY = "parakh-analysis-settings";
 const SECTIONS = [
   { id: "checks", label: "Default checks" },
   { id: "thresholds", label: "Thresholds" },
-  { id: "profiles", label: "Screening tests" },
+  { id: "profiles", label: "Presets" },
   { id: "session", label: "Session" },
   { id: "about", label: "About" },
 ] as const;
@@ -51,7 +51,6 @@ const CHECK_LABELS: Record<string, string> = {
   qr_presence: "QR detection",
   font_analysis: "Font analysis",
   moire: "Moire detection",
-  scanner_noise: "Scanner noise",
   same_phone: "Same-phone consistency",
   tamper_scan: "Whitener detection",
   readability: "Readability",
@@ -392,7 +391,7 @@ export default function SettingsPage() {
           )}
         </section>
 
-        {/* ---- Screening tests (profiles) ---------------------- */}
+        {/* ---- Presets (screening profiles) ---------------------- */}
         <section
           className="settings-panel"
           id="profiles"
@@ -400,9 +399,9 @@ export default function SettingsPage() {
           ref={(node) => { sectionRefs.current.profiles = node; }}
         >
           <header className="settings-panel-head">
-            <h2 id="profiles-title">Screening tests</h2>
+            <h2 id="profiles-title">Presets</h2>
             <p>
-              Named tests bundle a goal, a decision rule, and a set of checks and thresholds, so the
+              Named presets bundle a goal, a decision rule, and a set of checks and thresholds, so the
               same screening is applied the same way every time. Create one from{" "}
               <NavLink href="/new">New review</NavLink> once you have a setup you want to reuse; edit
               its wording or remove it here.
@@ -411,8 +410,8 @@ export default function SettingsPage() {
 
           {profiles.length === 0 ? (
             <p className="settings-muted">
-              No screening tests saved yet. On the New review screen, choose your checks and
-              thresholds, then “Create a test from this setup”.
+              No presets saved yet. On the New review screen, choose your checks and
+              thresholds, then “Create a preset from this setup”.
             </p>
           ) : (
             <ul className="profile-manage-list">
@@ -483,13 +482,13 @@ export default function SettingsPage() {
         >
           <header className="settings-panel-head">
             <h2 id="session-title">Session</h2>
-            <p>Parakh has no user accounts. The whole workspace is opened with one shared access code.</p>
+            <p>Access is tied to an approved account and this registered device.</p>
           </header>
 
           <dl className="settings-facts">
             <div>
-              <dt>Access code</dt>
-              <dd>{session.required ? "Required to open this workspace." : "Not configured — this workspace is open to anyone who can reach it."}</dd>
+              <dt>Account</dt>
+              <dd>{session.user ? `${session.user.display_name} (${session.user.email})` : session.required ? "Sign-in required." : "Local development mode."}</dd>
             </div>
             <div>
               <dt>Screening service</dt>
@@ -503,7 +502,7 @@ export default function SettingsPage() {
             <div className="settings-signout">
               <div>
                 <strong>Sign out of this device</strong>
-                <small>Clears the access code from this browser. Saved defaults stay on this device.</small>
+                <small>Ends this session. Saved defaults and local documents stay on this device.</small>
               </div>
               <button type="button" className="settings-danger-button" onClick={() => { void signOut(); }}>Sign out</button>
             </div>

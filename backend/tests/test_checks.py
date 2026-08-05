@@ -22,10 +22,6 @@ class CheckCriteriaTests(unittest.TestCase):
         cases = {
             "same_phone": {"summary": {"overall_verdict": "insufficient_pages"}, "pages": [{"page": 1}]},
             "moire": {"file_verdict": "INCONCLUSIVE", "images": [{"reason": "image too small"}]},
-            "scanner_noise": {
-                "source_consistency_possible": False,
-                "summary": {"overall_risk": "low", "pages_analyzed": 1, "suspicious_regions": 0},
-            },
             "tamper_scan": {
                 "verdict": "insufficient_signal",
                 "pages": [{"page": 1, "indeterminate": True}],
@@ -56,6 +52,19 @@ class CheckCriteriaTests(unittest.TestCase):
             with self.subTest(analyzer=analyzer):
                 self.assertEqual(checks.evaluate(analyzer, found).status, checks.PASS)
                 self.assertEqual(checks.evaluate(analyzer, missing).status, checks.FAIL)
+
+    def test_qr_decoded_payload_is_read_from_the_scanners_own_field(self) -> None:
+        """The scanner emits `payload` (QRHit); reading only `data` left the
+        decoded text out of every report even when a code was found."""
+
+        verdict = checks.evaluate(
+            "qr_presence",
+            {"qr_count": 1, "hits": [{"page": 5, "payload": "HS/1221057946/2022"}]},
+        )
+        facts = {fact["label"]: fact["value"] for fact in verdict.as_dict()["facts"]}
+
+        self.assertEqual(verdict.status, checks.PASS)
+        self.assertEqual(facts["Decoded payloads"], "HS/1221057946/2022")
 
     def test_metadata_never_returns_a_tick_or_a_cross(self) -> None:
         clean = checks.evaluate("metadata", {"status": "passed", "generation": {"kind": "scanner"}, "issues": []})

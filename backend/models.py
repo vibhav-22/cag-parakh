@@ -213,6 +213,10 @@ class BatchState(BaseModel):
     status: JobStatus
     document_count: int = Field(ge=1)
     jobs: list[JobState]
+    # The project this run was filed into, or None for an unfiled run. Absent
+    # on every batch stored before Projects existed — defaulted so those still
+    # validate.
+    project_id: str | None = None
 
 
 class BatchSummary(BaseModel):
@@ -225,6 +229,20 @@ class BatchSummary(BaseModel):
     document_count: int = Field(ge=1)
     completed_documents: int = Field(ge=0)
     flagged_documents: int = Field(ge=0)
+    project_id: str | None = None
+
+
+class ProjectState(BaseModel):
+    """A folder that groups screening runs. Also the list row — same shape."""
+
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    # Live counts, derived at read time from the batches that name this
+    # project. Never stored on the project record itself.
+    batch_count: int = Field(default=0, ge=0)
+    last_activity_at: datetime | None = None
 
 
 class DocumentPage(BaseModel):
@@ -435,29 +453,6 @@ def _evidence_regions(
                 y0=float(bbox[1]) / pixels[1],
                 x1=float(bbox[2]) / pixels[0],
                 y1=float(bbox[3]) / pixels[1],
-            )
-            if region:
-                regions.append(region)
-
-    if analyzer_id == "scanner_noise":
-        for item in payload.get("suspicious_regions", []):
-            if not isinstance(item, dict) or not isinstance(item.get("bbox_normalized"), dict):
-                continue
-            bbox = item["bbox_normalized"]
-            page = item.get("page")
-            if not isinstance(page, int):
-                continue
-            severity = _risk({"risk": item.get("severity")})
-            region = _normalized_region(
-                page=page,
-                kind="capture_inconsistency",
-                label="Capture inconsistency",
-                message=str(item.get("reason") or "Local capture characteristics differ from the page."),
-                severity=severity,
-                x0=float(bbox.get("x0", 0)),
-                y0=float(bbox.get("y0", 0)),
-                x1=float(bbox.get("x1", 0)),
-                y1=float(bbox.get("y1", 0)),
             )
             if region:
                 regions.append(region)

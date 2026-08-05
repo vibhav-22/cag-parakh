@@ -37,6 +37,7 @@ outputs/same_phone_test_reports/
 !outputs/same_phone_pdf_check_toolkit/
 !outputs/same_phone_pdf_check_toolkit/**
 backend/data/
+license-data/
 
 # Downloaded local AI runtime and model weights
 backend/models/
@@ -45,3 +46,11 @@ backend/runtime/
 tools/signature_analysis/weights/*.pt
 # Signature benchmark outputs
 tools/signature_analysis/benchmark_out/
+
+# Landing-page flight: intermediate frames only. The encoded clip, its poster
+# and the per-stop stills under frontend/public/flight/ are build products that
+# ship with the page, so they stay tracked -- re-render with
+# tools/flight/render_flight.py.
+tmp/flight-frames/
+tmp/flight-probe/
+.gstack/

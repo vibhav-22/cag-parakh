@@ -317,6 +317,7 @@ export default function BatchPage() {
             <div className="ba-exports">
               <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.html`} target="_blank" rel="noreferrer">Batch report ↗</a>
               <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.csv`}>CSV</a>
+              <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.xlsx`}>Excel</a>
               <button type="button" className="text-button" onClick={saveAsDefaults}>
                 {defaultsSaved ? "Saved as defaults ✓" : "Save these checks as my defaults"}
               </button>
@@ -399,10 +400,12 @@ export default function BatchPage() {
                             </div>
                           )}
                         </td>
-                        <td className="signals-cell">
-                          {signals.length ? signals.slice(0, 3).map((label) => <span className="signal-chip" key={label}>{label}</span>)
-                            : <span className="signal-none">No signals</span>}
-                          {signals.length > 3 && <span className="signal-chip more">+{signals.length - 3}</span>}
+                        <td className="signals-td">
+                          <div className="signals-cell">
+                            {signals.length ? signals.slice(0, 3).map((label) => <span className="signal-chip" key={label}>{label}</span>)
+                              : <span className="signal-none">No signals</span>}
+                            {signals.length > 3 && <span className="signal-chip more">+{signals.length - 3}</span>}
+                          </div>
                         </td>
                         <td>
                           <span className={`status-dot-chip ${verdict.tone}`}><i aria-hidden="true" />{verdict.label}</span>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "../components/app-shell";
 import NavLink from "../components/nav-link";
 import RouteHeader from "../components/route-header";
-import { API_URL, docVerdict, formatWhen, titleCase } from "../lib/format";
+import { API_URL, docVerdict, formatWhen, relativeDay, titleCase } from "../lib/format";
 import { useSession } from "../lib/session";
 import type { Batch, BatchSummary } from "../lib/types";
 
@@ -56,21 +56,6 @@ function summarize(batch: Batch): CaseDetail {
     decisions,
     hasErrors,
   };
-}
-
-/** Human day label above the exact timestamp, so a scan down the column reads
- *  as time passing rather than as ten identical dates. */
-function relativeDay(iso: string, now: number): string {
-  const then = new Date(iso);
-  if (Number.isNaN(then.getTime())) return "";
-  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const days = Math.round((startOf(new Date(now)) - startOf(then)) / 86_400_000);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  if (days < 14) return "Last week";
-  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
-  return `${Math.round(days / 30)} months ago`;
 }
 
 function caseVerdict(item: BatchSummary, detail?: CaseDetail): { label: string; tone: string } {

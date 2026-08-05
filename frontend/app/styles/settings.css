@@ -433,7 +433,7 @@
   .app[data-route="settings"] .settings-danger-button { transition-duration: 1ms; }
 }
 
-/* ── Screening tests management ─────────────────────────────────────────── */
+/* ── Presets management ─────────────────────────────────────────── */
 .app[data-route="settings"] .profile-manage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .app[data-route="settings"] .profile-manage-item {
   display: flex;

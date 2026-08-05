@@ -2,20 +2,20 @@
 
 export type AnalysisSettings = {
   metadata: { dpi: number };
-  qr_presence: { dpi: number; min_codes: number; max_pages: number; rotations: string; stop_after_first: boolean };
-  scanner_noise: { dpi: number; grid: number; max_analysis_side: number; local_regions: boolean };
+  qr_presence: { dpi: number; min_codes: number; max_pages: number; rotations: string; stop_after_first: boolean; effort: "low" | "medium" | "high" };
   same_phone: { dpi: number; max_analysis_side: number };
   tamper_scan: { dpi: number; review_threshold: number; annotate_all: boolean };
   readability: { dpi: number; noise_threshold: number; sharpness_threshold: number };
+  photo_detection: { effort: "low" | "medium" | "high" };
 };
 
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   metadata: { dpi: 200 },
-  qr_presence: { dpi: 300, min_codes: 1, max_pages: 0, rotations: "0,90", stop_after_first: false },
-  scanner_noise: { dpi: 220, grid: 4, max_analysis_side: 1800, local_regions: true },
+  qr_presence: { dpi: 300, min_codes: 1, max_pages: 0, rotations: "0,90", stop_after_first: false, effort: "medium" },
   same_phone: { dpi: 180, max_analysis_side: 1800 },
   tamper_scan: { dpi: 200, review_threshold: 0.35, annotate_all: false },
   readability: { dpi: 150, noise_threshold: 8, sharpness_threshold: 500 },
+  photo_detection: { effort: "medium" },
 };
 
 type Analyzer = { id: string; description: string; available?: boolean; availability_message?: string | null };
@@ -35,7 +35,6 @@ const LABELS: Record<string, string> = {
   qr_presence: "QR detection",
   font_analysis: "Font analysis",
   moire: "Moire detection",
-  scanner_noise: "Scanner noise",
   same_phone: "Same-phone consistency",
   tamper_scan: "Whitener detection",
   readability: "Readability",
@@ -47,11 +46,10 @@ const SUMMARIES: Record<string, string> = {
   qr_presence: "Search effort and expected QR count",
   font_analysis: "Typeface, embedding, and OCR-layer rules",
   moire: "Adaptive frequency-pattern screening",
-  scanner_noise: "Page and local capture consistency",
   same_phone: "Cross-page camera fingerprint comparison",
   tamper_scan: "Correction-fluid probability and regions",
   readability: "OCR, image noise, and sharpness limits",
-  photo_detection: "Passport-style face extraction and photo quality",
+  photo_detection: "Search effort for passport-style face extraction",
 };
 
 function numberValue(value: string, fallback: number) {
@@ -104,7 +102,7 @@ function SettingSwitch({ label, hint, checked, onChange }: {
 
 export default function AdvancedSettings({ analyzers, selected, settings, onToggleAnalyzer, onChange, onReset, onBack }: Props) {
   const available = new Set(analyzers.map((item) => item.id));
-  const orderedIds = ["metadata", "qr_presence", "font_analysis", "moire", "scanner_noise", "same_phone", "tamper_scan", "readability", "photo_detection"]
+  const orderedIds = ["metadata", "qr_presence", "font_analysis", "moire", "same_phone", "tamper_scan", "readability", "photo_detection"]
     .filter((id) => available.has(id));
   const customized = JSON.stringify(settings) !== JSON.stringify(DEFAULT_ANALYSIS_SETTINGS);
 
@@ -148,7 +146,15 @@ export default function AdvancedSettings({ analyzers, selected, settings, onTogg
               </div>}
 
               {id === "qr_presence" && <div className="setting-fields">
-                <SettingField label="Search DPI" hint="Resolution used to decode QR codes" value={settings.qr_presence.dpi} min={96} max={600} suffix="dpi" onChange={(dpi) => patch("qr_presence", { dpi })} />
+                <label className="setting-field">
+                  <span><strong>Search effort</strong><small>How hard to look before reporting no QR code</small></span>
+                  <select value={settings.qr_presence.effort} onChange={(event) => patch("qr_presence", { effort: event.target.value as AnalysisSettings["qr_presence"]["effort"] })}>
+                    <option value="low">Low — fastest, one pass</option>
+                    <option value="medium">Medium — widen only on a miss</option>
+                    <option value="high">High — widest search, slowest</option>
+                  </select>
+                </label>
+                <SettingField label="Search DPI" hint="Starting resolution for the first pass" value={settings.qr_presence.dpi} min={96} max={600} suffix="dpi" onChange={(dpi) => patch("qr_presence", { dpi })} />
                 <SettingField label="Minimum QR codes" hint="Flag documents with fewer matches" value={settings.qr_presence.min_codes} min={0} max={20} onChange={(min_codes) => patch("qr_presence", { min_codes })} />
                 <SettingField label="Page limit" hint="0 scans every page" value={settings.qr_presence.max_pages} min={0} max={100} onChange={(max_pages) => patch("qr_presence", { max_pages })} />
                 <label className="setting-field">
@@ -160,13 +166,6 @@ export default function AdvancedSettings({ analyzers, selected, settings, onTogg
                   </select>
                 </label>
                 <SettingSwitch label="Stop after first" hint="Faster when only presence matters" checked={settings.qr_presence.stop_after_first} onChange={(stop_after_first) => patch("qr_presence", { stop_after_first })} />
-              </div>}
-
-              {id === "scanner_noise" && <div className="setting-fields">
-                <SettingField label="Render DPI" hint="Noise sampling resolution" value={settings.scanner_noise.dpi} min={96} max={400} suffix="dpi" onChange={(dpi) => patch("scanner_noise", { dpi })} />
-                <SettingField label="Region grid" hint="Tiles per page axis" value={settings.scanner_noise.grid} min={2} max={8} suffix="×" onChange={(grid) => patch("scanner_noise", { grid })} />
-                <SettingField label="Analysis size" hint="Maximum page side" value={settings.scanner_noise.max_analysis_side} min={800} max={4000} step={100} suffix="px" onChange={(max_analysis_side) => patch("scanner_noise", { max_analysis_side })} />
-                <SettingSwitch label="Local region checks" hint="Locate noise or blur anomalies" checked={settings.scanner_noise.local_regions} onChange={(local_regions) => patch("scanner_noise", { local_regions })} />
               </div>}
 
               {id === "same_phone" && <div className="setting-fields">
@@ -186,7 +185,38 @@ export default function AdvancedSettings({ analyzers, selected, settings, onTogg
                 <SettingField label="Minimum sharpness" hint="Higher is stricter" value={settings.readability.sharpness_threshold} min={50} max={5000} step={50} onChange={(sharpness_threshold) => patch("readability", { sharpness_threshold })} />
               </div>}
 
-              {(id === "font_analysis" || id === "moire" || id === "photo_detection") && <p className="managed-setting">This detector uses calibrated adaptive rules. Enable or disable it here; no manual threshold is required.</p>}
+              {id === "photo_detection" && <div className="setting-fields">
+                <label className="setting-field">
+                  <span><strong>Search effort</strong><small>How hard to look before reporting the photos found are all of them</small></span>
+                  <select value={settings.photo_detection.effort} onChange={(event) => patch("photo_detection", { effort: event.target.value as AnalysisSettings["photo_detection"]["effort"] })}>
+                    <option value="low">Low — embedded images only, fastest</option>
+                    <option value="medium">Medium — render pages only on a miss</option>
+                    <option value="high">High — always render every page, slowest</option>
+                  </select>
+                </label>
+                <p className="managed-setting">
+                  <strong>Low</strong> reads only the images already stored inside the PDF and never
+                  renders a page, so a photo printed into a page scan is missed. A &ldquo;no photo&rdquo;
+                  result is reported as inconclusive rather than a fail, because the page was
+                  never looked at. <em>About 2–6 seconds per document.</em>
+                  <br /><br />
+                  <strong>Medium</strong> is the default and what this detector has always done: read the
+                  embedded images, and render every page only if that finds nothing.
+                  <em>About 3–9 seconds per document.</em>
+                  <br /><br />
+                  <strong>High</strong> always renders every page at 400 dpi and sweeps it with a denser
+                  window at a lower confidence floor, even when photos were already found — this is
+                  what finds a second portrait beside the first, which matters for face matching
+                  across a batch. It also surfaces more false positives.
+                  <em>About 8–35 seconds for a short document; a 43-page file measured 166 seconds.
+                  Documents beyond roughly 90 pages risk hitting the 6-minute detector timeout.</em>
+                  <br /><br />
+                  Timings measured on this machine over five documents from the current corpus; they
+                  scale with page count and with how many faces each page contains.
+                </p>
+              </div>}
+
+              {(id === "font_analysis" || id === "moire") && <p className="managed-setting">This detector uses calibrated adaptive rules. Enable or disable it here; no manual threshold is required.</p>}
             </section>
           );
         })}

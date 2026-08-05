@@ -273,10 +273,101 @@ class PhotoDetectionFallbackTests(unittest.TestCase):
             prefer_full_image=False,
             minimum_crop_side=extract_photo.OPENCV_RENDERED_MIN_CROP_SIDE,
             minimum_score=extract_photo.OPENCV_MULTI_PHOTO_CONFIDENCE,
+            stride=extract_photo.PHOTO_EFFORT_LEVELS["medium"]["stride"],
         )
         self.assertTrue(result["photo_found"])
         self.assertEqual(result["page"], 1)
         self.assertEqual(result["photo_count"], 1)
+
+    def test_low_effort_never_renders_a_page(self) -> None:
+        """Low is only cheap because it skips rendering entirely. If the embedded
+        pass finds nothing, it must still not fall back to a page render."""
+
+        class _InsightApp:
+            backend_name = "insightface"
+
+            def get(self, _image):  # noqa: ANN001, ANN202
+                return []
+
+        with (
+            patch.object(extract_photo, "get_face_app", return_value=_InsightApp()),
+            patch.object(extract_photo, "extract_embedded_pdf_images", return_value=[]),
+            patch.object(extract_photo, "pdf_to_images") as rendered,
+        ):
+            result = extract_photo.process_file(Path("scan.pdf"), effort="low")
+
+        rendered.assert_not_called()
+        # No embedded images and no render: still a reportable "no photo",
+        # not a crashed detector.
+        self.assertFalse(result["photo_found"])
+        self.assertEqual(result["search_effort"], "low")
+        self.assertFalse(result["page_rendered"])
+
+    def test_medium_effort_renders_only_after_an_empty_embedded_pass(self) -> None:
+        page = np.full((800, 600, 3), 180, dtype=np.uint8)
+
+        class _InsightApp:
+            backend_name = "insightface"
+
+            def get(self, _image):  # noqa: ANN001, ANN202
+                return []
+
+        with (
+            patch.object(extract_photo, "get_face_app", return_value=_InsightApp()),
+            patch.object(extract_photo, "extract_embedded_pdf_images", return_value=[]),
+            patch.object(extract_photo, "pdf_to_images", return_value=[(1, page)]) as rendered,
+            patch.object(extract_photo, "extract_all_and_validate", return_value=[]),
+        ):
+            result = extract_photo.process_file(Path("scan.pdf"), effort="medium")
+
+        rendered.assert_called_once()
+        self.assertFalse(result["photo_found"])
+        self.assertEqual(result["search_effort"], "medium")
+
+    def test_high_effort_renders_even_when_the_embedded_pass_found_a_photo(self) -> None:
+        """The gap this setting exists to close: a page whose embedded pass
+        already found one portrait was never swept, so a second portrait beside
+        it was never found. High must render regardless."""
+
+        page = np.full((800, 600, 3), 180, dtype=np.uint8)
+        embedded_image = np.full((300, 250, 3), 200, dtype=np.uint8)
+        detected = {
+            "pass": True, "reason": "ok", "blur": 100.0, "brightness": 120.0,
+            "contrast": 40.0, "face_score": 0.8,
+            "crop": page[20:240, 20:240], "bbox_px": (20, 20, 240, 240),
+        }
+
+        class _InsightApp:
+            backend_name = "insightface"
+
+            def get(self, _image):  # noqa: ANN001, ANN202
+                return []
+
+        with (
+            patch.object(extract_photo, "get_face_app", return_value=_InsightApp()),
+            patch.object(
+                extract_photo, "extract_embedded_pdf_images", return_value=[(1, embedded_image)],
+            ) as embedded,
+            patch.object(extract_photo, "pdf_to_images", return_value=[(1, page)]) as rendered,
+            patch.object(extract_photo, "extract_all_and_validate", return_value=[detected]),
+        ):
+            result = extract_photo.process_file(Path("scan.pdf"), effort="high")
+
+        rendered.assert_called_once()
+        # High takes the rendered page as the single source of truth, so the
+        # embedded pass is skipped rather than added to — the two work in
+        # different coordinate spaces and cannot be de-duplicated against
+        # each other.
+        embedded.assert_not_called()
+        self.assertEqual(result["search_effort"], "high")
+        self.assertEqual(result["render_dpi"], extract_photo.PHOTO_EFFORT_LEVELS["high"]["dpi"])
+        self.assertTrue(result["page_rendered"])
+
+    def test_an_unknown_effort_falls_back_to_the_default(self) -> None:
+        self.assertEqual(
+            extract_photo.effort_settings("nonsense"),
+            extract_photo.PHOTO_EFFORT_LEVELS[extract_photo.PHOTO_DEFAULT_EFFORT],
+        )
 
     def test_pdf_keeps_and_saves_every_distinct_photo(self) -> None:
         page_one = np.full((800, 600, 3), 180, dtype=np.uint8)

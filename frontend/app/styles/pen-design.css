@@ -89,6 +89,7 @@ h3,
 .app[data-route="new"],
 .app[data-route="ask"],
 .app[data-route="history"],
+.app[data-route="projects"],
 .app[data-route="batches"],
 .app[data-route="settings"],
 .app[data-route="document"] {
@@ -609,7 +610,12 @@ h3,
 .app[data-route="new"] .setup-form {
   padding: 0 0 24px;
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(300px, .85fr);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, .85fr);
+  grid-template-areas:
+    "documents checks"
+    "profile checks"
+    "overrides checks"
+    "submit checks";
   align-items: start;
   gap: 16px;
 }
@@ -619,8 +625,15 @@ h3,
   border-radius: var(--pen-radius-md);
   background: white;
 }
-.app[data-route="new"] .setup-block:first-child { grid-row: span 3; min-height: 560px; }
+.app[data-route="new"] .documents-block { grid-area: documents; }
+.app[data-route="new"] .profile-block { grid-area: profile; }
 .app[data-route="new"] .setup-block-head { border-color: var(--pen-border); }
+.app[data-route="new"] .filing-chip {
+  border: 1px solid var(--pen-blue-soft);
+  border-radius: var(--pen-radius-sm);
+  background: var(--pen-blue-soft);
+  color: var(--pen-blue);
+}
 .app[data-route="new"] .setup-ordinal { background: var(--pen-blue); border-color: var(--pen-blue); color: white; }
 .app[data-route="new"] .dropzone {
   min-height: 310px;
@@ -635,15 +648,33 @@ h3,
   background: var(--pen-blue);
   color: white;
 }
-.app[data-route="new"] .preset-options button,
 .app[data-route="new"] .analyzer-row,
 .app[data-route="new"] .run-overrides {
   border-color: var(--pen-border);
   background: white;
 }
-.app[data-route="new"] .setup-block:nth-of-type(2) { max-height: 430px; overflow: auto; }
-.app[data-route="new"] .run-overrides { grid-column: 2; }
-.app[data-route="new"] .setup-submit { grid-column: 2; }
+
+/* Checks card: fixed to the right column, pinned to the viewport, and never
+   grows past it. Only the detector list inside scrolls — the heading and
+   count stay put, and the page itself never needs to scroll to see more
+   checks. */
+.app[data-route="new"] .checks-block {
+  grid-area: checks;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app[data-route="new"] .checks-block .analyzer-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app[data-route="new"] .run-overrides { grid-area: overrides; }
+.app[data-route="new"] .setup-submit { grid-area: submit; }
 .app[data-route="new"] .setup-submit .primary-button { width: 100%; }
 
 /* History */
@@ -680,6 +711,40 @@ h3,
   background: white;
 }
 .app[data-route="history"] .case-row:hover { background: #f8faff; }
+
+/* Projects — a folder for screening runs. Shares case-row's visual
+   language with history so the two list routes read as siblings. */
+
+.app[data-route="projects"] .route-header-below { margin-top: 16px; }
+.app[data-route="projects"] .project-create {
+  padding: 12px;
+  border: 1px solid var(--pen-border);
+  border-radius: var(--pen-radius-sm);
+  background: rgba(255, 255, 255, .92);
+}
+.app[data-route="projects"] .project-create input {
+  border-color: var(--pen-border);
+  background: white;
+}
+.app[data-route="projects"] .project-list {
+  border: 1px solid var(--pen-border);
+  border-radius: var(--pen-radius-md);
+  background: white;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+.app[data-route="projects"] .project-row {
+  min-height: 62px;
+  border-color: var(--pen-border);
+  background: white;
+}
+.app[data-route="projects"] .project-row:hover { background: #f8faff; }
+.app[data-route="projects"] .project-empty {
+  border: 1px solid var(--pen-border);
+  border-radius: var(--pen-radius-md);
+  background: white;
+}
 
 /* Batch matrix and document review */
 
@@ -727,7 +792,121 @@ h3,
 .app[data-route="document"] .result-card summary { background: white; }
 .app[data-route="document"] .evidence-register { border-color: var(--pen-border); background: white; }
 .app[data-route="document"] .decision-card { border-radius: var(--pen-radius-md); }
-.analysis-loading { background-color: rgb(237 243 251 / 84%); background-image: none; }
+/* ---- Single-document screening overlay ----------------------
+   The scanner screen predates this design system, so it still
+   carried the old palette: a near-black platen, a violet beam, a
+   green-grey progress track and an off-scale 35px heading, all
+   floating loose on the canvas. It now reads as one more pen
+   room — white card, pen border, blue as the only progress
+   signal — and it leaves the rail visible so the operator can
+   still see where they are while a document runs.
+   --------------------------------------------------------- */
+
+.analysis-loading {
+  inset: 0 0 0 var(--rail-width);
+  padding: 32px;
+  background-color: rgb(237 243 251 / 92%);
+  background-image: none;
+  backdrop-filter: blur(2px);
+}
+.loading-shell {
+  width: min(100%, 940px);
+  gap: 40px;
+  padding: 30px 34px;
+  border: 1px solid var(--pen-border);
+  border-radius: var(--pen-radius-lg);
+  background: var(--pen-card);
+  box-shadow: 0 18px 44px rgb(20 26 36 / 10%);
+}
+
+/* The platen keeps its dark body — it is the same navy the rail and
+   topbar already use — but every accent inside it is now pen blue. */
+.scan-stage { height: 340px; }
+.scanner-bed {
+  width: 288px;
+  height: 264px;
+  border-radius: var(--pen-radius-md);
+  background: var(--pen-sidebar);
+  box-shadow: 0 16px 32px rgb(13 20 32 / 22%);
+}
+.scan-track { border-color: #24314a; background: var(--pen-sidebar-active); }
+.scanner-lip { background: #0a1018; border-top-color: #1b2636; }
+.scanner-lip i { background: #2b384f; }
+.scanner-lip i:first-child { background: var(--pen-clean); }
+.scanner-beam {
+  background: var(--pen-blue);
+  box-shadow: 0 0 12px rgb(47 91 234 / 70%);
+}
+.scanner-beam span { background: linear-gradient(to bottom, transparent, rgb(47 91 234 / 14%)); }
+.moving-document { border-radius: var(--pen-radius-sm); background: var(--pen-card); }
+.moving-document::before { border-color: var(--pen-border); }
+.doc-seal { border-color: var(--pen-border-strong); color: var(--pen-text-3); }
+.doc-line, .doc-field { background: #dfe5ee; }
+.doc-field { border-color: var(--pen-border); background: var(--pen-surface-2); }
+.doc-qr { background: repeating-conic-gradient(var(--pen-text-3) 0 25%, transparent 0 50%) 0/7px 7px; }
+.scan-shadow { background: rgb(13 20 32 / 14%); }
+
+/* Type and progress on the product's own scale: the eyebrow is the
+   same mono case reference used in every route header, and the
+   heading matches an h1 rather than shouting at 35px. */
+.case-reference {
+  margin: 0;
+  color: var(--pen-blue);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.case-reference strong { font-weight: 650; }
+.loading-copy h2 { margin: 10px 0 6px; font-size: 25px; letter-spacing: -.032em; }
+.loading-filename { margin-bottom: 20px; font-size: 12.5px; }
+.active-check {
+  border-color: var(--pen-border);
+  border-radius: var(--pen-radius-md);
+  background: var(--pen-surface-2);
+}
+.pulse-dot { background: var(--pen-blue); box-shadow: 0 0 0 0 rgb(47 91 234 / 40%); }
+.loading-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pen-surface-2);
+}
+.loading-progress span { border-radius: 999px; background: var(--pen-blue); }
+.progress-meta strong {
+  color: var(--pen-blue);
+  font-family: "Fragment Mono", var(--font-geist-mono), ui-monospace, monospace;
+}
+.check-stream span { color: var(--pen-text-3); font-size: 10.5px; }
+.check-stream i { border-color: var(--pen-border-strong); }
+.check-stream span.done { color: var(--pen-clean); }
+.check-stream span.done i { border-color: var(--pen-clean); background: var(--pen-clean); color: white; }
+.check-stream span.active { color: var(--pen-blue); }
+.check-stream span.active i { border-color: var(--pen-blue); background: var(--pen-blue-soft); }
+.loading-note { color: var(--pen-text-3); font-size: 10.5px; }
+
+/* Shared with the batch route, so both stall notices match. */
+.stall-notice {
+  border-color: #e7cfa4;
+  border-radius: var(--pen-radius-sm);
+  background: var(--pen-caution-soft);
+}
+.stall-notice strong { color: var(--pen-caution); }
+.stall-notice span { color: var(--pen-text-2); }
+.stall-notice button {
+  border-color: var(--pen-caution);
+  border-radius: var(--pen-radius-sm);
+  background: var(--pen-card);
+  color: var(--pen-caution);
+}
+
+@keyframes scan-pulse {
+  70% { box-shadow: 0 0 0 8px rgb(47 91 234 / 0%); }
+  100% { box-shadow: 0 0 0 0 rgb(47 91 234 / 0%); }
+}
+@keyframes active-check-ring {
+  50% { box-shadow: 0 0 0 4px rgb(47 91 234 / 14%); }
+}
 
 /* Ask documents */
 
@@ -787,10 +966,24 @@ h3,
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
   .dashboard-side { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
-  .app[data-route="new"] .setup-form { grid-template-columns: minmax(0, 1fr); }
-  .app[data-route="new"] .setup-block:first-child { grid-row: auto; min-height: 0; }
-  .app[data-route="new"] .run-overrides,
-  .app[data-route="new"] .setup-submit { grid-column: auto; }
+  .app[data-route="new"] .setup-form {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "documents"
+      "profile"
+      "checks"
+      "overrides"
+      "submit";
+  }
+  .app[data-route="new"] .checks-block {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .app[data-route="new"] .checks-block .analyzer-list {
+    flex: none;
+    overflow: visible;
+  }
   .app[data-route="settings"] .settings-room { grid-template-columns: minmax(0, 1fr); }
   .app[data-route="settings"] #checks,
   .app[data-route="settings"] #thresholds,
@@ -832,6 +1025,9 @@ h3,
   .app[data-route="ask"] .ask-workspace { grid-template-columns: minmax(0, 1fr); }
   .app[data-route="ask"] .ask-conversation,
   .app[data-route="ask"] .ask-document { order: initial; }
+  /* The rail is a horizontal bar here, so the overlay covers the full width. */
+  .analysis-loading { inset: 0; padding: 18px; }
+  .loading-shell { gap: 20px; padding: 24px 22px; }
 }
 
 @media (max-width: 680px) {

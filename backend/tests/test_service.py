@@ -188,6 +188,242 @@ class JobStoreTests(unittest.TestCase):
                 ).is_file()
             )
 
+    def test_qr_miss_escalates_to_a_wider_dpi_sweep(self) -> None:
+        """A real UP board marksheet's QR decodes only at 350 DPI; the fast
+        pass (300 DPI) reported the document as having none."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create("marksheet.pdf", b"%PDF-1.7", ["qr_presence"])
+            seen_dpis: list[str] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                dpi = command[command.index("--dpi") + 1]
+                seen_dpis.append(dpi)
+                output_path = Path(command[command.index("--out") + 1])
+                # Only the wide sweep decodes anything, mirroring the measured
+                # behaviour: 300 DPI finds nothing at any rotation.
+                found = "350" in dpi
+                output_path.write_text(json.dumps({
+                    "qr_found": found,
+                    "qr_count": 1 if found else 0,
+                    "hits": [{"page": 5, "dpi": 350, "payload": "HS/1221057946"}] if found else [],
+                }), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            raw = completed["results"]["qr_presence"]["raw"]
+
+            self.assertEqual(seen_dpis, ["300", "250,350,450"])  # fast, then deep
+            self.assertEqual(raw["qr_count"], 1)
+            self.assertTrue(raw["deep_rescan"])
+            self.assertEqual(completed["results"]["qr_presence"]["outcome"], "clear")
+
+    def test_qr_dpi_ladder_is_derived_from_the_scans_own_resolution(self) -> None:
+        """The usable decode window sits above the scan's native resolution,
+        so the ladder has to move with each document rather than be fixed."""
+
+        import fitz
+
+        from backend.service import native_scan_dpi, qr_dpi_ladder
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scan.pdf"
+            document = fitz.open()
+            page = document.new_page(width=595, height=842)  # A4
+            # 2058x2711 over 8.26x11.69in is the real page-5 geometry that
+            # decoded only well above its ~250 DPI native resolution.
+            pixmap = fitz.Pixmap(fitz.csGRAY, fitz.IRect(0, 0, 2058, 2711))
+            pixmap.clear_with(255)
+            page.insert_image(page.rect, pixmap=pixmap)
+            document.save(path)
+            document.close()
+
+            native = native_scan_dpi(path)
+            assert native is not None
+            # 2058/8.26in = 249 across, 2711/11.69in = 232 down. The lower
+            # axis is the one that limits how many pixels a QR module gets,
+            # so that is the resolution the ladder must be built from.
+            self.assertAlmostEqual(native, 232, delta=8)
+
+            ladder = qr_dpi_ladder(path)
+            assert ladder is not None
+            values = [int(item) for item in ladder.split(",")]
+            self.assertEqual(values[0], min(values))
+            # Must reach into the measured 350-400 window, which a ladder
+            # pinned at the native resolution alone would never touch.
+            self.assertTrue(any(340 <= value <= 420 for value in values), values)
+
+    def test_qr_dpi_ladder_is_none_for_a_pdf_with_no_raster_page(self) -> None:
+        import fitz
+
+        from backend.service import qr_dpi_ladder
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "text.pdf"
+            document = fitz.open()
+            document.new_page(width=595, height=842).insert_text((72, 72), "born digital")
+            document.save(path)
+            document.close()
+
+            self.assertIsNone(qr_dpi_ladder(path))
+
+    def test_qr_effort_low_never_escalates(self) -> None:
+        """Low effort is the time-efficient mode: one pass, no wide sweep."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create(
+                "marksheet.pdf", b"%PDF-1.7", ["qr_presence"],
+                {"qr_presence": {"effort": "low"}},
+            )
+            calls: list[str] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                calls.append(command[command.index("--dpi") + 1])
+                Path(command[command.index("--out") + 1]).write_text(
+                    json.dumps({"qr_found": False, "qr_count": 0, "hits": []}), encoding="utf-8"
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            self.assertEqual(calls, ["300"])  # fast pass only
+            raw = completed["results"]["qr_presence"]["raw"]
+            self.assertEqual(raw["search_effort"], "low")
+            # The reason must admit the search was shallow rather than imply
+            # the document has no code.
+            reason = completed["results"]["qr_presence"]["check"]["reason"]
+            self.assertIn("raise QR search effort", reason)
+
+    def test_qr_effort_high_sweeps_even_after_the_fast_pass_finds_one(self) -> None:
+        """High effort looks for codes the fast pass could not reach, so it
+        must not stop just because the cheap pass already found something."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create(
+                "two-codes.pdf", b"%PDF-1.7", ["qr_presence"],
+                {"qr_presence": {"effort": "high"}},
+            )
+            calls: list[str] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                dpi = command[command.index("--dpi") + 1]
+                calls.append(dpi)
+                deep = "," in dpi
+                hits = [{"page": 1, "payload": "first"}]
+                if deep:
+                    hits.append({"page": 5, "payload": "second"})
+                Path(command[command.index("--out") + 1]).write_text(
+                    json.dumps({"qr_found": True, "qr_count": len(hits), "hits": hits}),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            self.assertEqual(len(calls), 2)  # escalated despite a hit
+            self.assertEqual(completed["results"]["qr_presence"]["raw"]["qr_count"], 2)
+
+    def test_qr_deep_rescan_never_loses_codes_the_fast_pass_found(self) -> None:
+        """The wide sweep replaces the fast result only if it found at least
+        as much — a deep pass that decodes fewer codes must not win."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create(
+                "regress.pdf", b"%PDF-1.7", ["qr_presence"],
+                {"qr_presence": {"effort": "high"}},
+            )
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                deep = "," in command[command.index("--dpi") + 1]
+                hits = [] if deep else [{"page": 1, "payload": "only-fast-finds-me"}]
+                Path(command[command.index("--out") + 1]).write_text(
+                    json.dumps({"qr_found": bool(hits), "qr_count": len(hits), "hits": hits}),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            self.assertEqual(completed["results"]["qr_presence"]["raw"]["qr_count"], 1)
+
+    def test_qr_deep_rescan_timeout_is_inconclusive_not_a_clean_miss(self) -> None:
+        """A sweep killed part-way proves nothing about the document. Measured
+        at 474s against a 360s budget, this silently produced a "no QR code"
+        verdict whose reason claimed the wide search had completed."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create("slow.pdf", b"%PDF-1.7", ["qr_presence"])
+
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if "," in command[command.index("--dpi") + 1]:
+                    raise subprocess.TimeoutExpired(command, float(kwargs.get("timeout") or 0))
+                Path(command[command.index("--out") + 1]).write_text(
+                    json.dumps({"qr_found": False, "qr_count": 0, "hits": []}), encoding="utf-8"
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            result = completed["results"]["qr_presence"]
+
+            self.assertEqual(result["raw"]["deep_rescan_incomplete"], "timeout")
+            self.assertEqual(result["check"]["status"], "inconclusive")
+            self.assertEqual(result["outcome"], "inconclusive")
+            self.assertIn("ran out of time", result["check"]["reason"])
+            # It must not assert the document has no QR code.
+            self.assertNotIn("still decoded nothing", result["check"]["reason"])
+
+    def test_qr_deep_rescan_gets_a_longer_budget_than_the_fast_pass(self) -> None:
+        from backend.service import QR_DEEP_TIMEOUT_SECONDS, TIMEOUT_SECONDS
+
+        self.assertGreater(QR_DEEP_TIMEOUT_SECONDS, TIMEOUT_SECONDS)
+
+    def test_qr_deep_rescan_keeps_the_fast_result_when_it_also_finds_nothing(self) -> None:
+        """A genuinely QR-free document must not be reported as errored or
+        changed by the escalation — it stays a plain 'found none'."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create("no-qr.pdf", b"%PDF-1.7", ["qr_presence"])
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                output_path = Path(command[command.index("--out") + 1])
+                output_path.write_text(
+                    json.dumps({"qr_found": False, "qr_count": 0, "hits": []}), encoding="utf-8"
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            raw = completed["results"]["qr_presence"]["raw"]
+
+            self.assertEqual(raw["qr_count"], 0)
+            self.assertNotIn("deep_rescan", raw)
+
     def test_create_initializes_one_queued_run_per_analyzer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory))
@@ -270,6 +506,147 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(result["check"]["status"], "inconclusive")
             self.assertTrue(result["check"]["reason"])
             self.assertEqual(reloaded["analyzer_runs"]["moire"]["result"]["check"]["status"], "inconclusive")
+
+
+class ProjectStoreTests(unittest.TestCase):
+    def test_project_is_created_listed_and_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Q3 intake")
+
+            self.assertEqual(project["name"], "Q3 intake")
+            self.assertTrue(project["id"])
+            self.assertEqual(project["created_at"], project["updated_at"])
+            self.assertTrue((Path(directory) / f"{project['id']}.project.json").exists())
+            self.assertEqual([p["id"] for p in store.list_projects()], [project["id"]])
+
+            # A restart must not lose it — this is what proves the new _load()
+            # glob actually runs.
+            reloaded_store = JobStore(Path(directory))
+            reloaded = reloaded_store.project(project["id"])
+            self.assertIsNotNone(reloaded)
+            assert reloaded is not None
+            self.assertEqual(reloaded["name"], "Q3 intake")
+
+    def test_project_name_is_trimmed_and_required(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("  Q3 intake  ")
+            self.assertEqual(project["name"], "Q3 intake")
+
+            with self.assertRaises(ValueError):
+                store.create_project("")
+            with self.assertRaises(ValueError):
+                store.create_project("   ")
+
+    def test_batch_records_its_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Q3 intake")
+            batch = store.create_batch(
+                [("sample.pdf", b"%PDF-1.7")], ["qr_presence"],
+                project_id=project["id"],
+            )
+
+            self.assertEqual(batch["project_id"], project["id"])
+            state = store.batch_state(batch["id"])
+            assert state is not None
+            self.assertEqual(state["project_id"], project["id"])
+            filed = store.list_project_batches(project["id"])
+            self.assertEqual([b["id"] for b in filed], [batch["id"]])
+
+    def test_batch_with_unknown_project_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+
+            with self.assertRaises(ValueError):
+                store.create_batch(
+                    [("sample.pdf", b"%PDF-1.7")], ["qr_presence"],
+                    project_id="not-a-real-project",
+                )
+
+            # Validation must happen before any job file is written, so a
+            # deleted-mid-upload project never orphans job artifacts.
+            self.assertEqual(list(Path(directory).glob("*.job.json")), [])
+            self.assertEqual(store.list_batches(), [])
+
+    def test_deleting_a_project_unfiles_its_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Q3 intake")
+            batch = store.create_batch(
+                [("sample.pdf", b"%PDF-1.7")], ["qr_presence"],
+                project_id=project["id"],
+            )
+
+            self.assertTrue(store.delete_project(project["id"]))
+            self.assertIsNone(store.project(project["id"]))
+
+            state = store.batch_state(batch["id"])
+            assert state is not None
+            self.assertIsNone(state["project_id"])
+            self.assertIn(batch["id"], [b["id"] for b in store.list_batches()])
+
+            on_disk = json.loads((Path(directory) / f"{batch['id']}.batch.json").read_text())
+            self.assertIsNone(on_disk.get("project_id"))
+
+    def test_orphaned_project_id_is_cleared_on_load(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            batch = store.create_batch([("sample.pdf", b"%PDF-1.7")], ["qr_presence"])
+            batch_path = Path(directory) / f"{batch['id']}.batch.json"
+            on_disk = json.loads(batch_path.read_text())
+            on_disk["project_id"] = "ghost-project"
+            batch_path.write_text(json.dumps(on_disk))
+
+            reloaded_store = JobStore(Path(directory))
+            state = reloaded_store.batch_state(batch["id"])
+            assert state is not None
+            self.assertIsNone(state["project_id"])
+            rewritten = json.loads(batch_path.read_text())
+            self.assertIsNone(rewritten.get("project_id"))
+
+    def test_empty_project_survives_a_reload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Empty so far")
+
+            reloaded_store = JobStore(Path(directory))
+            self.assertIsNotNone(reloaded_store.project(project["id"]))
+            self.assertEqual(reloaded_store.list_project_batches(project["id"]), [])
+
+    def test_renaming_a_project_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Old name")
+            renamed = store.rename_project(project["id"], "New name")
+            assert renamed is not None
+            self.assertEqual(renamed["name"], "New name")
+            self.assertGreaterEqual(renamed["updated_at"], project["updated_at"])
+
+            reloaded_store = JobStore(Path(directory))
+            reloaded = reloaded_store.project(project["id"])
+            assert reloaded is not None
+            self.assertEqual(reloaded["name"], "New name")
+
+            self.assertIsNone(store.rename_project("missing-project", "x"))
+
+    def test_project_batch_count_matches_the_listed_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            project = store.create_project("Q3 intake")
+            store.create_batch(
+                [("a.pdf", b"%PDF-1.7")], ["qr_presence"], project_id=project["id"],
+            )
+            store.create_batch(
+                [("b.pdf", b"%PDF-1.7")], ["qr_presence"], project_id=project["id"],
+            )
+            store.create_batch([("c.pdf", b"%PDF-1.7")], ["qr_presence"])  # unfiled
+
+            listed = store.list_projects()
+            row = next(p for p in listed if p["id"] == project["id"])
+            self.assertEqual(row["batch_count"], len(store.list_project_batches(project["id"])))
+            self.assertEqual(row["batch_count"], 2)
 
 
 if __name__ == "__main__":

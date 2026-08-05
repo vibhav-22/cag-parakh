@@ -5,5 +5,5 @@ from __future__ import annotations
 # whenever the API contract does; DETECTORS_VERSION moves whenever a detector's
 # scoring, thresholds, or output shape changes in a way that could alter a
 # verdict for the same input bytes.
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 DETECTORS_VERSION = "2026.07.1"

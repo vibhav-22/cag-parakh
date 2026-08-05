@@ -264,6 +264,39 @@ p { text-wrap: pretty; }
 .feedback-toast.success { border-color: #a9cbbb; background: var(--accent-soft); color: var(--accent-hover); }
 @starting-style { .feedback-toast { opacity: 0; transform: translateY(6px) scale(.98); } }
 
+/* Offline grace notice. Quiet by default so it does not compete with the
+   route header, and only escalates to the caution palette once the backend
+   flags that time is nearly up. A banner that always shouts gets ignored. */
+.grace-banner {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.grace-banner > span {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+.grace-banner p { margin: 0; display: grid; gap: 2px; font-size: 10.5px; line-height: 1.45; }
+.grace-banner strong { font-size: 11.5px; }
+.grace-banner.urgent {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .empty-state { min-height: calc(100dvh - 136px); max-width: 670px; margin: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
 .document-ghost {
   width: 92px;
@@ -839,7 +872,7 @@ p { text-wrap: pretty; }
 .outcome-matrix tbody tr:hover td, .outcome-matrix tbody tr:hover th { background: color-mix(in srgb, var(--surface-muted) 55%, transparent); }
 .doc-link { padding: 2px 0; border: 0; background: none; color: var(--accent); font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; transition: color 150ms ease; }
 .doc-link:hover { color: var(--accent-hover); }
-.outcome-matrix td span, .matrix-legend i {
+.outcome-matrix:not(.summary-matrix) td span, .matrix-legend i {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-sm);
