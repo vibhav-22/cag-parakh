@@ -493,6 +493,7 @@ class JobStoreTests(unittest.TestCase):
             legacy_job = store.get(job_id)
             assert legacy_job is not None
             legacy_job["status"] = "completed"
+            legacy_job["check_contract_version"] = 0
             legacy_job["results"] = {"moire": legacy_result}
             legacy_job["analyzer_runs"]["moire"]["status"] = "completed"
             legacy_job["analyzer_runs"]["moire"]["result"] = legacy_result
@@ -517,11 +518,11 @@ class ProjectStoreTests(unittest.TestCase):
             self.assertEqual(project["name"], "Q3 intake")
             self.assertTrue(project["id"])
             self.assertEqual(project["created_at"], project["updated_at"])
-            self.assertTrue((Path(directory) / f"{project['id']}.project.json").exists())
+            self.assertTrue(store.database_path.exists())
+            self.assertEqual(list(Path(directory).glob("*.project.json")), [])
             self.assertEqual([p["id"] for p in store.list_projects()], [project["id"]])
 
-            # A restart must not lose it — this is what proves the new _load()
-            # glob actually runs.
+            # A restart must not lose the committed project row.
             reloaded_store = JobStore(Path(directory))
             reloaded = reloaded_store.project(project["id"])
             self.assertIsNotNone(reloaded)
@@ -565,9 +566,10 @@ class ProjectStoreTests(unittest.TestCase):
                     project_id="not-a-real-project",
                 )
 
-            # Validation must happen before any job file is written, so a
-            # deleted-mid-upload project never orphans job artifacts.
+            # Validation must happen before any document is written, so a
+            # deleted-mid-upload project never orphans stored content.
             self.assertEqual(list(Path(directory).glob("*.job.json")), [])
+            self.assertEqual(list((Path(directory) / "documents").rglob("*.pdf")), [])
             self.assertEqual(store.list_batches(), [])
 
     def test_deleting_a_project_unfiles_its_batches(self) -> None:
@@ -587,24 +589,22 @@ class ProjectStoreTests(unittest.TestCase):
             self.assertIsNone(state["project_id"])
             self.assertIn(batch["id"], [b["id"] for b in store.list_batches()])
 
-            on_disk = json.loads((Path(directory) / f"{batch['id']}.batch.json").read_text())
-            self.assertIsNone(on_disk.get("project_id"))
+            self.assertIsNone(store.batch_state(batch["id"])["project_id"])
 
-    def test_orphaned_project_id_is_cleared_on_load(self) -> None:
+    def test_project_foreign_key_unfiles_batches_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory))
-            batch = store.create_batch([("sample.pdf", b"%PDF-1.7")], ["qr_presence"])
-            batch_path = Path(directory) / f"{batch['id']}.batch.json"
-            on_disk = json.loads(batch_path.read_text())
-            on_disk["project_id"] = "ghost-project"
-            batch_path.write_text(json.dumps(on_disk))
+            project = store.create_project("Temporary")
+            batch = store.create_batch(
+                [("sample.pdf", b"%PDF-1.7")], ["qr_presence"],
+                project_id=project["id"],
+            )
+            store.delete_project(project["id"])
 
             reloaded_store = JobStore(Path(directory))
             state = reloaded_store.batch_state(batch["id"])
             assert state is not None
             self.assertIsNone(state["project_id"])
-            rewritten = json.loads(batch_path.read_text())
-            self.assertIsNone(rewritten.get("project_id"))
 
     def test_empty_project_survives_a_reload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

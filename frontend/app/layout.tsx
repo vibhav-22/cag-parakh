@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { SessionProvider } from "./lib/session";
 import "./globals.css";
-// Faces first, so every stylesheet below can name them.
+// Faces first, so every stylesheet below can name them. This file also defines
+// --font-geist-sans and --font-geist-mono, which next/font used to set on the
+// body. next/font cannot be used here at all: under vinext it writes an
+// absolute C:/ path into the generated @font-face, the browser refuses it as a
+// file:// resource, and every face fails silently. See tools/fonts/sync_fonts.py.
 import "./styles/fonts.css";
 // Shell first (it defines the per-route surface tokens), then one stylesheet
 // per route. Each route file owns its own selectors so they never collide.
@@ -19,20 +22,11 @@ import "./styles/pen-design.css";
 import "./styles/reports.css";
 import "./styles/welcome.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+  const isLoopback = host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]");
+  const protocol = requestHeaders.get("x-forwarded-proto") || (isLoopback ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
   const title = "Parakh | Document Integrity Workspace";
   const description = "Run local PDF integrity checks, inspect evidence, and record review decisions.";
@@ -53,9 +47,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

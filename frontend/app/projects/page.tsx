@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "../components/app-shell";
 import NavLink from "../components/nav-link";
@@ -26,6 +26,7 @@ export default function ProjectsPage() {
   const [draftName, setDraftName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const nameField = useRef<HTMLInputElement>(null);
   // Sampled once per load, same reasoning as /history: relative dates must
   // stay stable across re-renders.
   const [now, setNow] = useState(0);
@@ -52,7 +53,14 @@ export default function ProjectsPage() {
   async function createProject(event: FormEvent) {
     event.preventDefault();
     const name = draftName.trim();
-    if (!name) return;
+    // A click with nothing typed is the common first move — the button is the
+    // only thing on the page that looks like "start here". Say what is missing
+    // and put the cursor where it goes, rather than swallowing the click.
+    if (!name) {
+      setError("Give the project a name first.");
+      nameField.current?.focus();
+      return;
+    }
     setCreating(true);
     setError("");
     try {
@@ -92,14 +100,15 @@ export default function ProjectsPage() {
           below={
             <form className="project-create" onSubmit={createProject}>
               <input
+                ref={nameField}
                 type="text"
                 value={draftName}
                 placeholder="Name a new project — e.g. Q3 passport intake"
                 aria-label="New project name"
                 maxLength={80}
-                onChange={(event) => setDraftName(event.target.value)}
+                onChange={(event) => { setDraftName(event.target.value); if (error) setError(""); }}
               />
-              <button type="submit" className="primary-button" disabled={creating || !draftName.trim()}>
+              <button type="submit" className="primary-button" disabled={creating}>
                 {creating ? "Creating…" : "New project"}
               </button>
             </form>

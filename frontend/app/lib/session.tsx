@@ -11,7 +11,14 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { API_URL } from "./format";
+import { installLaunchToken, stripLaunchTokenFromUrl } from "./launch-token";
 import type { ServiceStatus, Session } from "./types";
+
+// At module scope, not in an effect: this module is imported by the root
+// layout, so it evaluates before anything renders. Child effects run before
+// parent effects, so installing from the provider below would let a page fire
+// its first API call before the token was being attached.
+installLaunchToken();
 
 /**
  * Routes that render before anyone has signed in.
@@ -56,6 +63,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const handleUnauthorized = useCallback(() => {
     setSession({ required: true, authenticated: false });
   }, []);
+
+  // The token is already captured by the module-scope install above; this only
+  // clears it out of the address bar and the history entry.
+  useEffect(() => { stripLaunchTokenFromUrl(); }, []);
 
   useEffect(() => {
     let active = true;

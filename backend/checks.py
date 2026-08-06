@@ -732,11 +732,29 @@ def _check_readability(raw: dict[str, Any]) -> CheckVerdict:
         str(test.get("name")) for test in (raw.get("tests") or [])
         if isinstance(test, dict) and test.get("passed") is False and test.get("name")
     ]
+    not_run = [str(name) for name in (raw.get("tests_not_run") or []) if name]
     facts = _facts(
         ("Readability score", f"{score}/100" if isinstance(score, int) else None),
         ("Sub-tests passed", f"{passed}/{total}" if total else None),
         ("Failed sub-tests", failed_tests[:6] or "None"),
+        ("Checks that could not run", not_run[:6] or None),
     )
+
+    if verdict == "incomplete" or not_run:
+        # Some sub-checks need Tesseract or poppler. When those are absent the
+        # checker used to mark them passed, which inflated the score and could
+        # turn a document that fails into a clean result. An unanswered
+        # question is reported as unanswered.
+        return CheckVerdict(
+            INCONCLUSIVE,
+            criterion,
+            f"{len(not_run)} of {_count(raw.get('tests_declared')) or total} readability "
+            "sub-checks could not run on this machine"
+            + (f" ({', '.join(not_run[:3])})" if not_run else "")
+            + ", so machine readability could not be established. Install the OCR tooling "
+            "and re-run this check.",
+            facts,
+        )
 
     if verdict == "readable":
         return CheckVerdict(

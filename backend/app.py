@@ -28,6 +28,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from .access_control import AccessDenied, SESSION_COOKIE, SESSION_TTL_SECONDS, SessionManager
 from .app_paths import ROOT, data_dir, is_packaged
+from .dependencies import apply_runtime_configuration
+from .dependencies import status as dependency_status
+from .launch_token import LAUNCH_TOKEN_HEADER, LaunchTokenMiddleware
 from .models import (
     BatchState,
     BatchSummary,
@@ -55,6 +58,12 @@ from .vlm import VLMError, answer_document_question, get_vlm_status, vlm_is_conf
 from .vlm_documents import VLMDocumentStore
 
 
+# Before anything imports a detector: an installed build ships its own Tesseract,
+# poppler and face model, and the detectors find them through environment
+# variables they already honour. Without this a frozen build would fall back to
+# whatever happens to be on the machine, or to nothing at all.
+apply_runtime_configuration()
+
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_BATCH_FILES = 50
 MAX_IMAGE_PIXELS = 50_000_000
@@ -67,12 +76,21 @@ sessions = SessionManager(DATA_DIR)
 
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "").strip() == "1"
 
+# Supplied by the launcher, which mints one per launch and gives the same value
+# to the window it opens. Only enforced in an installed build: running from
+# source there is no launcher, and requiring it would mean no dev loop.
+LAUNCH_TOKEN = os.getenv("PARAKH_LAUNCH_TOKEN", "").strip()
+
 
 def require_access(request: Request) -> None:
     user = sessions.authenticate(request.cookies.get(SESSION_COOKIE, ""))
     if user is None:
         raise HTTPException(status_code=401, detail="Sign in to continue.")
     request.state.user = user
+
+
+def _current_user_id(request: Request) -> str:
+    return str(request.state.user.id)
 
 
 class ReviewRequest(BaseModel):
@@ -145,7 +163,16 @@ app.add_middleware(
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", LAUNCH_TOKEN_HEADER],
+    expose_headers=["X-Total-Count", "X-Next-Cursor"],
+)
+# Applied to every /api/ path rather than as a router dependency, because the
+# session routes are declared straight on `app` and a router dependency would
+# quietly skip them — as would any future route added the same way.
+app.add_middleware(
+    LaunchTokenMiddleware,
+    token=LAUNCH_TOKEN,
+    required=is_packaged(),
 )
 
 api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_access)])
@@ -218,8 +245,22 @@ def vlm_status() -> dict[str, object]:
     return get_vlm_status(ping=True)
 
 
-def _vlm_document(document_id: str) -> tuple[dict[str, object], Path]:
-    document = vlm_documents.get(document_id)
+@api.get("/diagnostics/dependencies")
+def dependencies_status() -> dict[str, object]:
+    """Which native tools and models this installation actually found.
+
+    An installed build that cannot find its own bundled Tesseract, poppler or
+    face model still starts and still screens documents — it just quietly loses
+    checks. This is how that becomes visible: the clean-VM smoke test asserts
+    `complete` is true, and the diagnostics export carries it so a support case
+    starts with the answer instead of a guess.
+    """
+
+    return dependency_status()
+
+
+def _vlm_document(document_id: str, request: Request) -> tuple[dict[str, object], Path]:
+    document = vlm_documents.get_for_user(document_id, _current_user_id(request))
     path = vlm_documents.path_for(document_id)
     if document is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Visual Q&A document not found.")
@@ -363,12 +404,13 @@ async def _read_screening_upload(file: UploadFile) -> tuple[str, bytes, str]:
 
 @api.post("/vlm/documents", status_code=status.HTTP_201_CREATED)
 async def create_vlm_document(
+    request: Request,
     file: Annotated[UploadFile, File(description="PDF or image document to ask questions about")],
 ) -> dict[str, object]:
     if not vlm_is_configured():
         raise HTTPException(status_code=503, detail=str(get_vlm_status(ping=False)["message"]))
     name, payload = await _read_document_upload(file)
-    record = vlm_documents.create(name, payload)
+    record = vlm_documents.create(name, payload, _current_user_id(request))
     try:
         sizes = pdf_page_sizes(vlm_documents.path_for(str(record["id"])))
     except (OSError, RuntimeError, ValueError) as exc:
@@ -377,8 +419,10 @@ async def create_vlm_document(
 
 
 @api.post("/vlm/documents/{document_id}/questions")
-def ask_vlm_document_question(document_id: str, body: DocumentQuestionRequest) -> dict[str, object]:
-    _, path = _vlm_document(document_id)
+def ask_vlm_document_question(
+    document_id: str, body: DocumentQuestionRequest, request: Request
+) -> dict[str, object]:
+    _, path = _vlm_document(document_id, request)
     if not vlm_is_configured():
         raise HTTPException(status_code=503, detail=str(get_vlm_status(ping=False)["message"]))
     try:
@@ -400,8 +444,8 @@ def ask_vlm_document_question(document_id: str, body: DocumentQuestionRequest) -
 
 
 @api.get("/vlm/documents/{document_id}/manifest", response_model=DocumentManifest)
-def get_vlm_document_manifest(document_id: str) -> DocumentManifest:
-    _, path = _vlm_document(document_id)
+def get_vlm_document_manifest(document_id: str, request: Request) -> DocumentManifest:
+    _, path = _vlm_document(document_id, request)
     try:
         sizes = pdf_page_sizes(path)
     except (OSError, RuntimeError, ValueError) as exc:
@@ -414,9 +458,10 @@ def get_vlm_document_manifest(document_id: str) -> DocumentManifest:
 def get_vlm_document_page(
     document_id: str,
     page_number: int,
+    request: Request,
     dpi: Annotated[int, Query(ge=96, le=200)] = 144,
 ) -> Response:
-    _, path = _vlm_document(document_id)
+    _, path = _vlm_document(document_id, request)
     try:
         with fitz.open(path) as document:
             if page_number < 1 or page_number > len(document):
@@ -482,6 +527,7 @@ def _requested_profile(profile: str | None) -> dict[str, object] | None:
 
 @api.post("/jobs", status_code=status.HTTP_202_ACCEPTED, response_model=JobState)
 async def create_job(
+    request: Request,
     file: Annotated[UploadFile, File(description="PDF or image document to screen")],
     analyzers: str | None = None,
     settings: Annotated[str | None, Form()] = None,
@@ -491,7 +537,7 @@ async def create_job(
     try:
         job = store.create(
             name, payload, _requested_analyzers(analyzers), _requested_settings(settings),
-            digest, _requested_profile(profile),
+            digest, _requested_profile(profile), _current_user_id(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -499,55 +545,92 @@ async def create_job(
     return JobState.model_validate(job)
 
 
-def _project_or_404(project_id: str) -> dict[str, object]:
-    project = next((item for item in store.list_projects() if item["id"] == project_id), None)
+def _project_or_404(project_id: str, request: Request) -> dict[str, object]:
+    project = store.project_for_user(project_id, _current_user_id(request))
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
 
 @api.post("/projects", status_code=status.HTTP_201_CREATED, response_model=ProjectState)
-def create_project(body: ProjectNameRequest) -> ProjectState:
-    project = store.create_project(body.name)
-    return ProjectState.model_validate(_project_or_404(project["id"]))
+def create_project(body: ProjectNameRequest, request: Request) -> ProjectState:
+    project = store.create_project(body.name, _current_user_id(request))
+    return ProjectState.model_validate(_project_or_404(project["id"], request))
 
 
 @api.get("/projects", response_model=list[ProjectState])
-def list_projects() -> list[ProjectState]:
-    return [ProjectState.model_validate(item) for item in store.list_projects()]
+def list_projects(request: Request) -> list[ProjectState]:
+    return [ProjectState.model_validate(item) for item in store.list_projects_for_user(_current_user_id(request))]
 
 
 @api.get("/projects/{project_id}", response_model=ProjectState)
-def get_project(project_id: str) -> ProjectState:
-    return ProjectState.model_validate(_project_or_404(project_id))
+def get_project(project_id: str, request: Request) -> ProjectState:
+    return ProjectState.model_validate(_project_or_404(project_id, request))
 
 
 @api.post("/projects/{project_id}/rename", response_model=ProjectState)
-def rename_project(project_id: str, body: ProjectNameRequest) -> ProjectState:
+def rename_project(project_id: str, body: ProjectNameRequest, request: Request) -> ProjectState:
+    _project_or_404(project_id, request)
     try:
         renamed = store.rename_project(project_id, body.name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if renamed is None:
         raise HTTPException(status_code=404, detail="Project not found.")
-    return ProjectState.model_validate(_project_or_404(project_id))
+    return ProjectState.model_validate(_project_or_404(project_id, request))
 
 
 @api.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: str) -> Response:
+def delete_project(project_id: str, request: Request) -> Response:
+    _project_or_404(project_id, request)
     if not store.delete_project(project_id):
         raise HTTPException(status_code=404, detail="Project not found.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _set_batch_page_headers(
+    response: Response,
+    items: list[dict[str, object]],
+    total: int,
+    limit: int | None,
+) -> list[dict[str, object]]:
+    """Attach cursor metadata while keeping the response body backward compatible."""
+
+    response.headers["X-Total-Count"] = str(total)
+    if limit is None:
+        return items
+    page = items[:limit]
+    if len(items) > limit and page:
+        response.headers["X-Next-Cursor"] = store.batch_cursor(page[-1])
+    return page
+
+
 @api.get("/projects/{project_id}/batches", response_model=list[BatchSummary])
-def list_project_batches(project_id: str) -> list[BatchSummary]:
-    _project_or_404(project_id)
-    return [BatchSummary.model_validate(item) for item in store.list_project_batches(project_id)]
+def list_project_batches(
+    project_id: str,
+    request: Request,
+    response: Response,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> list[BatchSummary]:
+    _project_or_404(project_id, request)
+    try:
+        items = store.list_project_batches_for_user(
+            project_id, _current_user_id(request),
+            limit=(limit + 1) if limit else None, offset=offset, cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    page = _set_batch_page_headers(
+        response, items, store.count_batches_for_user(_current_user_id(request), project_id), limit
+    )
+    return [BatchSummary.model_validate(item) for item in page]
 
 
 @api.post("/batches", status_code=status.HTTP_202_ACCEPTED, response_model=BatchState)
 async def create_batch(
+    request: Request,
     files: Annotated[list[UploadFile], File(description="PDF or image documents to screen together")],
     analyzers: str | None = None,
     settings: Annotated[str | None, Form()] = None,
@@ -568,6 +651,7 @@ async def create_batch(
             _requested_settings(settings), _requested_profile(profile),
             str(batch_name or "").strip()[:80] or None,
             str(project_id or "").strip() or None,
+            _current_user_id(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -577,29 +661,43 @@ async def create_batch(
 
 
 @api.get("/batches", response_model=list[BatchSummary])
-def list_batches() -> list[BatchSummary]:
-    return [BatchSummary.model_validate(item) for item in store.list_batches()]
+def list_batches(
+    request: Request,
+    response: Response,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> list[BatchSummary]:
+    try:
+        items = store.list_batches_for_user(
+            _current_user_id(request),
+            limit=(limit + 1) if limit else None, offset=offset, cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    page = _set_batch_page_headers(response, items, store.count_batches_for_user(_current_user_id(request)), limit)
+    return [BatchSummary.model_validate(item) for item in page]
 
 
 @api.get("/batches/{batch_id}", response_model=BatchState)
-def get_batch(batch_id: str) -> BatchState:
-    state = store.batch_state(batch_id)
+def get_batch(batch_id: str, request: Request) -> BatchState:
+    state = store.batch_state_for_user(batch_id, _current_user_id(request))
     if state is None:
         raise HTTPException(status_code=404, detail="Batch not found.")
     return BatchState.model_validate(state)
 
 
 @api.get("/jobs/{job_id}", response_model=JobState)
-def get_job(job_id: str) -> JobState:
-    job = store.get(job_id)
+def get_job(job_id: str, request: Request) -> JobState:
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     return JobState.model_validate(job)
 
 
 @api.get("/jobs/{job_id}/document", response_class=FileResponse)
-def get_document(job_id: str) -> FileResponse:
-    job = store.get(job_id)
+def get_document(job_id: str, request: Request) -> FileResponse:
+    job = store.get_for_user(job_id, _current_user_id(request))
     path = store.path_for(job_id)
     if job is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -617,8 +715,8 @@ def get_document(job_id: str) -> FileResponse:
 
 
 @api.get("/jobs/{job_id}/document/manifest", response_model=DocumentManifest)
-def get_document_manifest(job_id: str) -> DocumentManifest:
-    job = store.get(job_id)
+def get_document_manifest(job_id: str, request: Request) -> DocumentManifest:
+    job = store.get_for_user(job_id, _current_user_id(request))
     path = store.path_for(job_id)
     if job is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -637,9 +735,10 @@ def get_document_manifest(job_id: str) -> DocumentManifest:
 def get_document_page(
     job_id: str,
     page_number: int,
+    request: Request,
     dpi: Annotated[int, Query(ge=96, le=200)] = 144,
 ) -> Response:
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     path = store.path_for(job_id)
     if job is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -662,8 +761,8 @@ def get_document_page(
 
 
 @api.get("/jobs/{job_id}/artifacts/{analyzer}/{filename:path}", response_class=FileResponse)
-def get_artifact(job_id: str, analyzer: str, filename: str) -> FileResponse:
-    if store.get(job_id) is None:
+def get_artifact(job_id: str, analyzer: str, filename: str, request: Request) -> FileResponse:
+    if store.get_for_user(job_id, _current_user_id(request)) is None:
         raise HTTPException(status_code=404, detail="Artifact not found.")
     artifact_root = (store.data_dir / f"{job_id}-{analyzer}-report").resolve()
     path = (artifact_root / filename).resolve()
@@ -680,7 +779,7 @@ def get_artifact(job_id: str, analyzer: str, filename: str) -> FileResponse:
 
 @api.post("/jobs/{job_id}/review")
 def save_review(job_id: str, review: ReviewRequest, request: Request) -> dict[str, object]:
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     # Stamp the versions and the exact settings the decision was made against.
@@ -700,10 +799,10 @@ def save_review(job_id: str, review: ReviewRequest, request: Request) -> dict[st
 
 
 @api.get("/jobs/{job_id}/duplicates", response_model=list[PriorScreening])
-def job_duplicates(job_id: str) -> list[PriorScreening]:
+def job_duplicates(job_id: str, request: Request) -> list[PriorScreening]:
     """Earlier screenings of byte-identical content, for a job already stored."""
 
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     digest = job.get("sha256")
@@ -711,15 +810,17 @@ def job_duplicates(job_id: str) -> list[PriorScreening]:
         return []
     return [
         PriorScreening.model_validate(item)
-        for item in store.prior_screenings(str(digest), exclude_job_id=job_id)
+        for item in store.prior_screenings_for_user(
+            str(digest), _current_user_id(request), exclude_job_id=job_id
+        )
     ]
 
 
 @api.post("/jobs/{job_id}/rerun", response_model=JobState, status_code=status.HTTP_202_ACCEPTED)
-def rerun_job(job_id: str, body: RerunRequest) -> JobState:
+def rerun_job(job_id: str, body: RerunRequest, request: Request) -> JobState:
     """Re-run checks that did not complete, keeping the results that did."""
 
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     if not store.path_for(job_id).is_file():
@@ -747,14 +848,14 @@ def rerun_job(job_id: str, body: RerunRequest) -> JobState:
 
 
 @api.post("/jobs/{job_id}/unanalyzable", response_model=JobState)
-def set_unanalyzable(job_id: str, body: UnanalyzableRequest) -> JobState:
+def set_unanalyzable(job_id: str, body: UnanalyzableRequest, request: Request) -> JobState:
     """Record that a document cannot be screened at all.
 
     A file that will never analyze has to leave the flagged queue, or it sits
     there forever looking like unfinished review work.
     """
 
-    if store.get(job_id) is None:
+    if store.get_for_user(job_id, _current_user_id(request)) is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     store.update(
         job_id,
@@ -765,14 +866,14 @@ def set_unanalyzable(job_id: str, body: UnanalyzableRequest) -> JobState:
 
 
 @api.post("/jobs/{job_id}/questions")
-def ask_job_question(job_id: str, body: DocumentQuestionRequest) -> dict[str, object]:
+def ask_job_question(job_id: str, body: DocumentQuestionRequest, request: Request) -> dict[str, object]:
     """Ask the VLM about a screened document, with its detector results in hand.
 
     Document-scoped on purpose: the model answers about this page set, and the
     analyzer outcomes steer which pages it is shown.
     """
 
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     path = store.path_for(job_id)
     if job is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -802,18 +903,18 @@ def _report_filename(stem: str, suffix: str) -> str:
 
 
 @api.get("/jobs/{job_id}/report.json")
-def job_report_json(job_id: str) -> dict[str, object]:
-    job = store.get(job_id)
+def job_report_json(job_id: str, request: Request) -> dict[str, object]:
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     return case_report(job, store.batch_id_for_job(job_id))
 
 
 @api.get("/jobs/{job_id}/report.html", response_class=Response)
-def job_report_html(job_id: str) -> Response:
+def job_report_html(job_id: str, request: Request) -> Response:
     """A printable case report. Print to PDF is the export path."""
 
-    job = store.get(job_id)
+    job = store.get_for_user(job_id, _current_user_id(request))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     html = render_case_html(case_report(job, store.batch_id_for_job(job_id)))
@@ -825,8 +926,8 @@ def job_report_html(job_id: str) -> Response:
 
 
 @api.get("/batches/{batch_id}/report.csv", response_class=Response)
-def batch_report_csv(batch_id: str) -> Response:
-    state = store.batch_state(batch_id)
+def batch_report_csv(batch_id: str, request: Request) -> Response:
+    state = store.batch_state_for_user(batch_id, _current_user_id(request))
     if state is None:
         raise HTTPException(status_code=404, detail="Batch not found.")
     return Response(
@@ -839,8 +940,8 @@ def batch_report_csv(batch_id: str) -> Response:
 
 
 @api.get("/batches/{batch_id}/report.xlsx", response_class=Response)
-def batch_report_xlsx(batch_id: str) -> Response:
-    state = store.batch_state(batch_id)
+def batch_report_xlsx(batch_id: str, request: Request) -> Response:
+    state = store.batch_state_for_user(batch_id, _current_user_id(request))
     if state is None:
         raise HTTPException(status_code=404, detail="Batch not found.")
     photo_duplicates = batch_photo_duplicates(state["jobs"], store.data_dir)
@@ -855,8 +956,8 @@ def batch_report_xlsx(batch_id: str) -> Response:
 
 
 @api.get("/batches/{batch_id}/report.html", response_class=Response)
-def batch_report_html(batch_id: str) -> Response:
-    state = store.batch_state(batch_id)
+def batch_report_html(batch_id: str, request: Request) -> Response:
+    state = store.batch_state_for_user(batch_id, _current_user_id(request))
     if state is None:
         raise HTTPException(status_code=404, detail="Batch not found.")
     return Response(
@@ -877,7 +978,7 @@ def _pdf_shape(payload: bytes) -> tuple[int, bool]:
     return page_count, has_text
 
 
-async def _preflight_file(file: UploadFile) -> PreflightFile:
+async def _preflight_file(file: UploadFile, owner_user_id: str) -> PreflightFile:
     """Inspect one upload candidate without creating a job for it.
 
     Every branch returns a row. A file that cannot be screened must be reported,
@@ -934,12 +1035,14 @@ async def _preflight_file(file: UploadFile) -> PreflightFile:
         warning=warning,
         prior_screenings=[
             PriorScreening.model_validate(item) for item in store.prior_screenings(digest)
+            if store.get_for_user(item["job_id"], owner_user_id) is not None
         ],
     )
 
 
 @api.post("/documents/preflight", response_model=PreflightReport)
 async def preflight_documents(
+    request: Request,
     files: Annotated[list[UploadFile], File(description="Documents to check before screening")],
 ) -> PreflightReport:
     """Check candidate uploads for duplicates and unreadable files.
@@ -954,7 +1057,7 @@ async def preflight_documents(
         raise HTTPException(
             status_code=413, detail=f"Upload up to {MAX_BATCH_FILES} documents per batch."
         )
-    rows = [await _preflight_file(file) for file in files]
+    rows = [await _preflight_file(file, _current_user_id(request)) for file in files]
     return PreflightReport(
         files=rows,
         duplicate_count=sum(bool(row.prior_screenings) for row in rows),
@@ -963,7 +1066,7 @@ async def preflight_documents(
 
 
 @api.post("/samples/case", status_code=status.HTTP_202_ACCEPTED, response_model=BatchState)
-def create_sample_case() -> BatchState:
+def create_sample_case(request: Request) -> BatchState:
     """Screen a generated sample document so first run has something to read."""
 
     try:
@@ -972,7 +1075,7 @@ def create_sample_case() -> BatchState:
         raise HTTPException(status_code=500, detail="The sample document could not be generated.") from exc
     batch = store.create_batch(
         [(SAMPLE_FILENAME, payload)], SAMPLE_ANALYZERS, sanitize_analysis_settings(None),
-        name="Sample case",
+        name="Sample case", owner_user_id=_current_user_id(request),
     )
     for job_id in batch["job_ids"]:
         submit_job(store, job_id)
@@ -980,3 +1083,13 @@ def create_sample_case() -> BatchState:
 
 
 app.include_router(api)
+
+
+def _resume_interrupted_jobs() -> None:
+    """Return crash-recovered analyzer work to the normal bounded pool."""
+
+    for job_id, analyzers in store.claim_recovery_queue():
+        submit_job(store, job_id, analyzers)
+
+
+app.router.on_startup.append(_resume_interrupted_jobs)

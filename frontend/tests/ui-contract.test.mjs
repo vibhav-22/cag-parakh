@@ -6,6 +6,8 @@ const read = (relative) => readFile(new URL(relative, import.meta.url), "utf8");
 
 const paths = {
   home: "../app/page.tsx",
+  layout: "../app/layout.tsx",
+  fontsCss: "../app/styles/fonts.css",
   css: "../app/globals.css",
   shellCss: "../app/styles/shell.css",
   caseCss: "../app/styles/case.css",
@@ -16,6 +18,7 @@ const paths = {
   rail: "../app/components/nav-rail.tsx",
   session: "../app/lib/session.tsx",
   graceBanner: "../app/components/grace-banner.tsx",
+  launchToken: "../app/lib/launch-token.ts",
   format: "../app/lib/format.ts",
   profiles: "../app/lib/profiles.ts",
   useBatch: "../app/lib/use-batch.ts",
@@ -108,6 +111,32 @@ test("warns before offline access runs out", async () => {
   // A clock-triggered lockout otherwise looks like the app losing the session
   // at random, with no route to recovery.
   assert.match(session, /clock_tampered/, "a clock lockout must explain itself on the sign-in card");
+});
+
+test("api calls prove they came from the app window", async () => {
+  const [launch, session] = await Promise.all([read(paths.launchToken), read(paths.session)]);
+
+  // Installed at module scope on purpose: child effects run before parent
+  // effects, so installing from the provider would miss a page's first call.
+  assert.match(
+    session,
+    /^installLaunchToken\(\);$/m,
+    "the token must be attached before any component can fetch",
+  );
+  assert.match(launch, /x-parakh-launch/, "the header must match what the backend checks");
+
+  // Strict same-origin. A looser check would hand the token to whatever host a
+  // request happened to name.
+  assert.match(
+    launch,
+    /resolved\.origin === window\.location\.origin/,
+    "the token must never travel to another origin",
+  );
+  assert.match(launch, /pathname\.startsWith\("\/api\/"\)/, "only API calls need the token");
+
+  // No launcher when running from source, so no token and no patch.
+  assert.match(launch, /if \(!launchToken\) return;/, "development must not need a token");
+  assert.match(launch, /replaceState/, "the token must not linger in the address bar");
 });
 
 test("labels the whitener detector and keeps raw output behind a disclosure", async () => {
@@ -556,6 +585,36 @@ test("a project groups screening runs and can start a new one", async () => {
   assert.match(newRoute, /URLSearchParams/, "/new must read the project id without useSearchParams (Suspense risk under vinext)");
   assert.match(controlPanel, /body\.append\("project_id"/, "a filed run must carry its project id to the backend");
   assert.match(controlPanel, /Filing into/, "a run started inside a project must show which one");
+});
+
+// The same vinext breakage as next/link, one layer down: next/font writes an
+// absolute C:/ path into the generated @font-face, the browser refuses it as a
+// file:// resource, and every face fails silently — the app keeps rendering, in
+// system-ui, with no visible symptom beyond a console the reviewer never opens.
+// The faces are self-hosted instead, by tools/fonts/sync_fonts.py.
+test("typography is self-hosted, never next/font", async () => {
+  const [layout, fonts] = await Promise.all([read(paths.layout), read(paths.fontsCss)]);
+
+  assert.doesNotMatch(
+    layout,
+    /from "next\/font/,
+    "next/font emits file:// URLs under vinext; add the family to tools/fonts/sync_fonts.py instead",
+  );
+  assert.match(layout, /styles\/fonts\.css/, "the layout must load the self-hosted faces");
+  // Comments stripped first: the generated header quotes the broken next/font
+  // output verbatim, C:/ path and all, as the explanation for this file.
+  const declarations = fonts.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const source of declarations.match(/src:\s*url\([^)]*\)/g) || []) {
+    assert.match(source, /url\(\/fonts\//, `faces must be served over HTTP, not from the filesystem: ${source}`);
+  }
+
+  for (const family of ["Instrument Sans", "Bricolage Grotesque", "Fragment Mono", "Geist", "Geist Mono"]) {
+    assert.match(fonts, new RegExp(`font-family: '${family}'`), `${family} must be self-hosted`);
+  }
+  // next/font used to define these on <body>; nothing else does now, and the
+  // stylesheets name them ~65 times.
+  assert.match(fonts, /--font-geist-sans:/, "the sans variable must survive next/font's removal");
+  assert.match(fonts, /--font-geist-mono:/, "the mono variable must survive next/font's removal");
 });
 
 test("navigation never imports next/link", async () => {

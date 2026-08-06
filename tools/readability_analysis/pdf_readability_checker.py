@@ -76,6 +76,11 @@ class TestResult:
     value: str          # human-readable measured value
     threshold: str      # what we required
     detail: str = ""    # extra context / why it matters
+    # False when the check could not execute at all, usually because Tesseract
+    # or poppler is absent. A check that did not run is neither a pass nor a
+    # fail, and counting it as either produces a verdict the evidence does not
+    # support. Everything below filters on this before reading `passed`.
+    ran: bool = True
 
 
 @dataclass
@@ -88,31 +93,53 @@ class ReadabilityReport:
     def add(self, result: TestResult):
         self.tests.append(result)
 
+    def not_run(self) -> list:
+        """Checks that could not execute, usually a missing Tesseract/poppler."""
+
+        return [t for t in self.tests if not t.ran]
+
     def summarise(self):
-        passed = sum(1 for t in self.tests if t.passed)
-        total  = len(self.tests)
+        # Only checks that actually ran can contribute. Scoring against the
+        # full list let a machine with no OCR tooling score HIGHER than one
+        # with it, because every check it could not run counted as a pass.
+        executed = [t for t in self.tests if t.ran]
+        passed = sum(1 for t in executed if t.passed)
+        total  = len(executed)
         self.score = int(100 * passed / total) if total else 0
 
-        # Check OCR word count — this is the strongest signal
-        ocr_word_test = next((t for t in self.tests if t.name == "OCR Word Count"), None)
-        ocr_conf_test = next((t for t in self.tests if t.name == "OCR Confidence"), None)
+        # Check OCR word count — this is the strongest signal. It only counts
+        # as a signal if OCR actually ran.
+        ocr_word_test = next((t for t in executed if t.name == "OCR Word Count"), None)
+        ocr_conf_test = next((t for t in executed if t.name == "OCR Confidence"), None)
         ocr_succeeded = ocr_word_test is not None and ocr_word_test.passed
 
         # For image-based PDFs (no text layer), missing text/pdfplumber is expected — don't penalise
         text_layer_tests = {"Extractable Text Words", "pdfplumber Character Quality"}
         has_text_layer = any(
-            t.passed for t in self.tests if t.name in text_layer_tests
+            t.passed for t in executed if t.name in text_layer_tests
         )
 
         critical_fails = [
-            t for t in self.tests
+            t for t in executed
             if not t.passed
             and t.name in ("OCR Confidence", "Extractable Text Words", "OCR Word Count")
             # If OCR found words, failing text-layer tests are expected — not critical
             and not (ocr_succeeded and t.name == "Extractable Text Words")
         ]
 
-        if ocr_succeeded and has_text_layer and self.score >= 70:
+        # An incomplete screening is reported as incomplete. Anything else lets
+        # a document that was never fully examined be handed to a reviewer as
+        # a finished verdict, which is the one output this tool must not
+        # produce. Named checks go in the label so the gap is actionable.
+        missing = self.not_run()
+        if missing:
+            names = ", ".join(t.name for t in missing[:3])
+            more = f" +{len(missing) - 3} more" if len(missing) > 3 else ""
+            self.overall = (
+                f"INCOMPLETE ⚠️  ({len(missing)} of {len(self.tests)} checks could not run: "
+                f"{names}{more})"
+            )
+        elif ocr_succeeded and has_text_layer and self.score >= 70:
             self.overall = "READABLE ✅"
         elif ocr_succeeded and not has_text_layer:
             # Image-based PDF — readable via OCR, no native text layer (normal for scanned docs)
@@ -188,8 +215,9 @@ def test_stream_errors(path: str) -> TestResult:
     except FileNotFoundError:
         return TestResult(
             name="PDF Stream Integrity",
-            passed=True,           # can't test without poppler; skip gracefully
-            value="pdfinfo not available — skipped",
+            passed=False,
+            ran=False,
+            value="pdfinfo not available — not run",
             threshold="0 errors",
             detail="Install poppler-utils for this check.",
         )
@@ -354,8 +382,9 @@ def test_ocr_confidence(pdf_path: str, dpi: int = 150) -> TestResult:
     except FileNotFoundError:
         return TestResult(
             name="OCR Confidence",
-            passed=True,
-            value="pdftoppm/tesseract not available — skipped",
+            passed=False,
+            ran=False,
+            value="pdftoppm/tesseract not available — not run",
             threshold="mean > 60",
             detail="Install poppler-utils and tesseract-ocr for this check.",
         )
@@ -400,8 +429,9 @@ def test_ocr_word_count(pdf_path: str, dpi: int = 150) -> TestResult:
     except FileNotFoundError:
         return TestResult(
             name="OCR Word Count",
-            passed=True,
-            value="pdftoppm/tesseract not available — skipped",
+            passed=False,
+            ran=False,
+            value="pdftoppm/tesseract not available — not run",
             threshold=">= 30 words",
         )
 
@@ -448,8 +478,9 @@ def test_image_noise(pdf_path: str, dpi: int = 150, threshold: float = 8.0) -> T
     except FileNotFoundError:
         return TestResult(
             name="Image Noise Level",
-            passed=True,
-            value="pdftoppm not available — skipped",
+            passed=False,
+            ran=False,
+            value="pdftoppm not available — not run",
             threshold=f"< {threshold:g}",
         )
 
@@ -494,8 +525,9 @@ def test_image_sharpness(pdf_path: str, dpi: int = 150, threshold: float = 500.0
     except FileNotFoundError:
         return TestResult(
             name="Image Sharpness",
-            passed=True,
-            value="pdftoppm not available — skipped",
+            passed=False,
+            ran=False,
+            value="pdftoppm not available — not run",
             threshold=f"> {threshold:g}",
         )
 
@@ -616,7 +648,13 @@ def report_to_dict(report: ReadabilityReport) -> dict:
     `tests` carries every TestResult so UIs can render a real table instead of
     re-parsing the pretty-printed text report.
     """
-    if report.overall.startswith("READABLE"):
+    not_run = report.not_run()
+    if not_run:
+        # Reported ahead of the readable/poor/unreadable ladder on purpose: if
+        # part of the screening never happened, the honest answer is that the
+        # question is open, not a verdict derived from the half that ran.
+        verdict, risk = "incomplete", "unknown"
+    elif report.overall.startswith("READABLE"):
         verdict, risk = "readable", "low"
     elif report.overall.startswith("POOR"):
         verdict, risk = "poor_readability", "medium"
@@ -624,6 +662,7 @@ def report_to_dict(report: ReadabilityReport) -> dict:
         verdict, risk = "unreadable", "high"
     else:
         verdict, risk = "unknown", "unknown"
+    executed = [t for t in report.tests if t.ran]
     return {
         "pdf_path": report.pdf_path,
         "verdict": verdict,
@@ -631,8 +670,13 @@ def report_to_dict(report: ReadabilityReport) -> dict:
         "passed": verdict == "readable",
         "risk": risk,
         "score": report.score,
-        "tests_passed": sum(1 for t in report.tests if t.passed),
-        "tests_total": len(report.tests),
+        # Counted over checks that ran, so the score cannot be inflated by
+        # checks that were impossible to perform.
+        "tests_passed": sum(1 for t in executed if t.passed),
+        "tests_total": len(executed),
+        "tests_declared": len(report.tests),
+        "complete": not not_run,
+        "tests_not_run": [t.name for t in not_run],
         "tests": [asdict(t) for t in report.tests],
     }
 

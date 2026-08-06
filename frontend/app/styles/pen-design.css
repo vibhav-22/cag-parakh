@@ -310,6 +310,19 @@ h3,
   box-shadow: none;
 }
 
+/* globals.css still carries the superseded dark theme's `.primary-button:disabled`
+   (near-black fill, grey text). That selector outranks the `.primary-button`
+   rule above no matter the import order, so a disabled button rendered as a
+   solid dark block on this light surface — it read as the page's main call to
+   action while doing nothing when clicked. */
+.primary-button:disabled,
+.save-button:disabled {
+  border-color: var(--pen-border-strong);
+  background: var(--pen-surface-2);
+  color: var(--pen-text-3);
+  cursor: not-allowed;
+}
+
 .primary-button:hover:not(:disabled),
 .save-button:hover:not(:disabled),
 .pen-primary:hover {

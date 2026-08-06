@@ -16,12 +16,13 @@ class VLMDocumentStore:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
-    def create(self, filename: str, payload: bytes) -> dict[str, Any]:
+    def create(self, filename: str, payload: bytes, owner_user_id: str | None = None) -> dict[str, Any]:
         document_id = uuid.uuid4().hex
         record = {
             "id": document_id,
             "filename": Path(filename).name,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "owner_user_id": owner_user_id,
         }
         with self._lock:
             self.path_for(document_id).write_bytes(payload)
@@ -42,6 +43,15 @@ class VLMDocumentStore:
         except (OSError, json.JSONDecodeError):
             return None
         return value if isinstance(value, dict) else None
+
+    def get_for_user(self, document_id: str, owner_user_id: str) -> dict[str, Any] | None:
+        record = self.get(document_id)
+        if record is None:
+            return None
+        owner = record.get("owner_user_id")
+        if owner == owner_user_id or (owner is None and owner_user_id == "development"):
+            return record
+        return None
 
     def path_for(self, document_id: str) -> Path:
         return self.data_dir / f"{document_id}.pdf"

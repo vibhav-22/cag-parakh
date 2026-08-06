@@ -185,8 +185,14 @@ export default function ControlPanel({
     try {
       const response = await fetch(`${API_URL}/api/v1/batches?analyzers=${encodeURIComponent(selected.join(","))}`, { method: "POST", body });
       if (response.status === 401) return handleUnauthorized();
-      const payload: Batch = await response.json();
-      if (!response.ok) throw new Error((payload as unknown as { detail?: string }).detail || "Unable to start analysis");
+      const contentType = response.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json")
+        ? await response.json() as Batch & { detail?: string }
+        : null;
+      if (!response.ok) {
+        throw new Error(payload?.detail || `Analysis service returned HTTP ${response.status}`);
+      }
+      if (!payload?.id) throw new Error("Analysis service returned an invalid response");
       setFiles([]);
       setBatchName("");
       router.push(`/batches/${payload.id}`);

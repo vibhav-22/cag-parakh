@@ -103,14 +103,15 @@ class PriorScreeningTests(unittest.TestCase):
 
     def test_a_job_stored_before_digests_existed_is_backfilled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = JobStore(Path(directory))
             payload = pdf_bytes()
-            job = store.create("legacy.pdf", payload, ["metadata"])
-            # Simulate the pre-digest record on disk.
+            source_store = JobStore(Path(directory) / "source")
+            job = source_store.create("legacy.pdf", payload, ["metadata"])
+            # Simulate the pre-digest JSON record before the SQLite migration.
             path = Path(directory) / f"{job['id']}.job.json"
-            stored = json.loads(path.read_text(encoding="utf-8"))
+            stored = dict(job)
             stored.pop("sha256")
             path.write_text(json.dumps(stored), encoding="utf-8")
+            (Path(directory) / f"{job['id']}.pdf").write_bytes(payload)
 
             reloaded = JobStore(Path(directory))
 
