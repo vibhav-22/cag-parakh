@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import AppShell from "../components/app-shell";
+import AuthorizedImg from "../components/authorized-img";
 import RouteHeader from "../components/route-header";
 import { API_URL, titleCase } from "../lib/format";
 import type { DocumentAnswer, DocumentManifest, VLMDocument, VLMStatus } from "../lib/types";
@@ -122,7 +123,7 @@ export default function AskDocumentsPage() {
               <button type="button" onClick={() => { setDocument(null); setManifest(null); setAnswers([]); setError(""); }}>Change document</button>
             </div>
             <div className="ask-page-stage">
-              {page ? <img src={`${API_URL}/api/v1/vlm/documents/${document.id}/pages/${currentPage}.png?dpi=144`} alt={`Page ${currentPage} of ${document.filename}`} /> : <span>Preparing preview...</span>}
+              {page ? <AuthorizedImg src={`${API_URL}/api/v1/vlm/documents/${document.id}/pages/${currentPage}.png?dpi=144`} alt={`Page ${currentPage} of ${document.filename}`} /> : <span>Preparing preview...</span>}
             </div>
             <div className="ask-page-controls">
               <button type="button" disabled={currentPage <= 1} onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}>Previous</button>

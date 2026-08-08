@@ -13,6 +13,10 @@ matplotlib>=3.8.0
 pdfplumber>=0.11.0
 pytesseract>=0.3.10
 openpyxl>=3.1.0
+# Ed25519 verification/signing and the Argon2id KDF used by the offline
+# authorization manifest. Pin the major/minor API used by auth_manifest.py so
+# production bundles cannot silently change password-derivation behavior.
+cryptography>=49.0,<50.0
 # Enables face-identity matching across a batch's document photos (see
 # backend/photo_identity.py). Without these, extract_photo.py falls back to a
 # plain OpenCV cascade that has no identity embeddings, and batch photo

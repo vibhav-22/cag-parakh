@@ -15,6 +15,7 @@ import NavLink from "../../../../components/nav-link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "../../../../components/app-shell";
 import AskDocumentPanel from "../../../../components/ask-document-panel";
+import AuthorizedImg from "../../../../components/authorized-img";
 import { CALIBRATION_NOTICE } from "../../../../lib/calibration";
 import {
   API_URL,
@@ -25,6 +26,7 @@ import {
   checkState,
   checkStatusOf,
   decisionLabel,
+  downloadReport,
   evidenceEntries,
   evidenceLabel,
   failedAnalyzers,
@@ -33,6 +35,7 @@ import {
   resultTone,
   riskTone,
   titleCase,
+  viewReport,
 } from "../../../../lib/format";
 import { useBatch } from "../../../../lib/use-batch";
 import type {
@@ -652,7 +655,7 @@ export default function DocumentPage() {
                           >
                             {detectedPhotos.map((photo) => (
                               <figure className="detected-photo" key={photo.artifact}>
-                                <img
+                                <AuthorizedImg
                                   src={`${API_URL}/api/v1/jobs/${job.id}/artifacts/${name}/${photo.artifact}`}
                                   alt={`Photo ${photo.index} detected in ${job.filename}`}
                                   loading="lazy"
@@ -669,7 +672,7 @@ export default function DocumentPage() {
                           <div className="detected-photos" aria-label={`${analyzerLabel(name)} image evidence`}>
                             {locatedEvidenceImages.map((evidence) => (
                               <figure className="detected-photo" key={evidence.artifact}>
-                                <img
+                                <AuthorizedImg
                                   src={`${API_URL}/api/v1/jobs/${job.id}/artifacts/${name}/${evidence.artifact}`}
                                   alt={`${analyzerLabel(name)} evidence ${evidence.index} detected in ${job.filename}`}
                                   loading="lazy"
@@ -823,7 +826,7 @@ export default function DocumentPage() {
                     <div className="document-message" role="alert"><strong>Preview unavailable</strong><span>{documentError}</span></div>
                   ) : currentPageInfo ? (
                     <div className="document-page" style={{ width: `${Math.round(zoom * 0.72)}%`, aspectRatio: `${currentPageInfo.width} / ${currentPageInfo.height}` }}>
-                      <img src={`${API_URL}/api/v1/jobs/${job.id}/document/pages/${currentPage}.png?dpi=144`} alt={`Page ${currentPage} of ${job.filename}`} draggable={false} />
+                      <AuthorizedImg src={`${API_URL}/api/v1/jobs/${job.id}/document/pages/${currentPage}.png?dpi=144`} alt={`Page ${currentPage} of ${job.filename}`} draggable={false} />
                       <div className="annotation-layer" aria-label={`${pageRegions.length} marked areas on page ${currentPage}`}>
                         {pageRegions.map((region) => (
                           <button
@@ -962,10 +965,10 @@ export default function DocumentPage() {
                       </small>
                     </div>
                     <div className="export-actions">
-                      <a className="export-primary" href={`${API_URL}/api/v1/jobs/${job.id}/report.html`} target="_blank" rel="noreferrer">
+                      <button type="button" className="export-primary" onClick={() => viewReport(`${API_URL}/api/v1/jobs/${job.id}/report.html`)}>
                         Case report ↗
-                      </a>
-                      <a href={`${API_URL}/api/v1/jobs/${job.id}/report.json`} target="_blank" rel="noreferrer">JSON</a>
+                      </button>
+                      <button type="button" onClick={() => downloadReport(`${API_URL}/api/v1/jobs/${job.id}/report.json`, `job-${job.id}-report.json`)}>JSON</button>
                     </div>
                   </div>
                   {!savedReview && (

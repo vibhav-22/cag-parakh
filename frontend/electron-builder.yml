@@ -1,0 +1,51 @@
+appId: com.parakh.desktop
+productName: Parakh
+
+directories:
+  output: ../release/windows
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Parakh-${version}-Setup-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Parakh
+  uninstallDisplayName: Parakh
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+
+# asar stays off and node_modules ships whole on purpose. The Vinext server runs
+# as a child process at runtime, and Vinext is a devDependency with a wide
+# transitive graph; enumerating it by hand is exactly the kind of omission that
+# passes every test here and fails on a tester's laptop. Size is not the
+# constraint for an internal tool -- a missing module is.
+asar: false
+
+files:
+  - electron/**
+  - dist/**
+  - public/**
+  - next.config.ts
+  - package.json
+  - node_modules/**
+
+# Prepared by build/make-installer.ps1. Mutable authorization and document data
+# never enter the installer staging tree.
+extraResources:
+  - from: .packaging/runtime
+    to: runtime
+  - from: .packaging/parakh
+    to: parakh
+  - from: .packaging/authorization
+    to: authorization
+  - from: .packaging/BUILD.json
+    to: BUILD.json

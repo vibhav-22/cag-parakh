@@ -4,6 +4,48 @@ import type { Job, NormalizedResult } from "./types";
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 export const MAX_BATCH_FILES = 50;
 
+/**
+ * Fetches a protected /api/ report and hands it to the browser as a real file
+ * download, instead of navigating to it.
+ *
+ * A plain `<a href="/api/...">` is a browser navigation, not a fetch — it
+ * cannot carry the x-parakh-launch header that installLaunchToken() attaches
+ * by patching window.fetch (see launch-token.ts). In an installed build that
+ * header is required, so the navigation 403s and replaces the whole app
+ * window with the raw error JSON, with no way back (same problem
+ * useAuthorizedImage works around for <img src>). Routing through fetch
+ * carries the header; the resulting blob is what actually gets downloaded.
+ */
+export async function downloadReport(url: string, filename: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Report download failed (${response.status})`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+/**
+ * Fetches a protected /api/ report and opens it in a new tab for viewing.
+ *
+ * Same launch-token problem as downloadReport above, but for `target="_blank"`
+ * links: those go through Electron's window-open handler, which only allows
+ * navigation to the app's own origin (or now, blob: URLs — see main.cjs). A
+ * direct link to the backend still 403s there for the same reason.
+ */
+export async function viewReport(url: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Report load failed (${response.status})`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+}
+
 export function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

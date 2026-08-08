@@ -136,6 +136,10 @@ def status() -> dict[str, object]:
         for dependency in EXTERNAL_DEPENDENCIES
     }
     absent = [dependency for dependency in EXTERNAL_DEPENDENCIES if resolved[dependency.key] is None]
+    # The VLM pack is optional: its absence must never make deterministic
+    # screening incomplete, but an installed-yet-broken pack must be visible.
+    from .vlm_model_pack import model_pack_status
+
     return {
         "complete": not absent,
         "resolved": resolved,
@@ -153,6 +157,7 @@ def status() -> dict[str, object]:
         "degraded_checks": sorted(
             {check for dependency in absent for check in dependency.affects}
         ),
+        "optional": {"vlm_model_pack": model_pack_status()},
     }
 
 

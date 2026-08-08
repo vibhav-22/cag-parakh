@@ -96,6 +96,39 @@ _CHILD_THREAD_LIMITS = {
     "VECLIB_MAXIMUM_THREADS": "1",
     "OPENCV_NUM_THREADS": "1",
 }
+
+
+def _detector_env() -> dict[str, str]:
+    return {**os.environ, "PYTHONIOENCODING": "utf-8", **_CHILD_THREAD_LIMITS}
+
+
+def _script_command(command: list[str]) -> list[str]:
+    """Rewrite [python, script, *args] so the script can import sibling modules.
+
+    A normal `python script.py` invocation always puts the script's own
+    directory on sys.path[0], which is how tools like qr_exists.py import their
+    sibling qr_local_lib.py. The packaged build's embedded interpreter uses a
+    ._pth file that replaces sys.path outright, and that file disables not
+    just the automatic script-directory entry but PYTHONPATH as well — there is
+    no environment variable that reaches it. Passing the script through `-c`
+    and inserting its directory explicitly is the one mechanism ._pth cannot
+    intercept, since it runs after the interpreter has already started.
+
+    `python -c CODE arg1 arg2` sets sys.argv to ['-c', arg1, arg2, ...], so the
+    wrapper overwrites sys.argv[0] before exec to make the target script see
+    exactly the argv it would get from a direct invocation.
+    """
+
+    python, script, *args = command
+    script_path = str(Path(script))
+    code = (
+        "import sys; "
+        f"sys.path.insert(0, {str(Path(script_path).parent)!r}); "
+        f"sys.argv[0] = {script_path!r}; "
+        f"exec(compile(open({script_path!r}, encoding='utf-8').read(), {script_path!r}, 'exec'), "
+        "{'__name__': '__main__', '__file__': " + repr(script_path) + "})"
+    )
+    return [python, "-c", code, *args]
 ANALYZERS: dict[str, dict[str, Any]] = {
     "metadata": {"script": "tools/metadata_analysis/metadata_check.py", "kind": "json", "flag": "--output", "description": "PDF metadata and structural editing signals"},
     "qr_presence": {"script": "tools/qr_analysis/qr_exists.py", "kind": "json", "flag": "--out", "description": "QR code presence and decoded payloads"},
@@ -364,7 +397,12 @@ def _load_whitener_result(
     detector_dir = report_dir / input_path.stem
     report_path = detector_dir / "report.json"
     detail = (completed.stderr or completed.stdout)[-2000:]
-    if completed.returncode != 0 or not report_path.is_file():
+    # The detector is invoked with --fail-over, which makes it exit 3 (not 0)
+    # whenever a document's whitener probability lands at or above the review
+    # threshold -- i.e. exactly the documents this check exists to catch. Only
+    # exit 2 (a genuine processing error, from tamper_detect_local.py's own
+    # had_error path) or a missing report means the run actually failed.
+    if completed.returncode not in (0, 3) or not report_path.is_file():
         return {
             "status": "error",
             "exit_code": completed.returncode,
@@ -2050,9 +2088,9 @@ def _deep_qr_rescan(
         command += ["--max-pages", str(settings["max_pages"])]
     try:
         subprocess.run(
-            command, cwd=script.parent, capture_output=True, text=True,
+            _script_command(command), cwd=script.parent, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=QR_DEEP_TIMEOUT_SECONDS, check=False,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8", **_CHILD_THREAD_LIMITS},
+            env=_detector_env(),
         )
         if not output_path.exists():
             return None, "error"
@@ -2093,9 +2131,9 @@ def _run_analyzer(
     exit_code: int | None = None
     try:
         completed = subprocess.run(
-            command, cwd=script.parent, capture_output=True, text=True,
+            _script_command(command), cwd=script.parent, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=TIMEOUT_SECONDS, check=False,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8", **_CHILD_THREAD_LIMITS},
+            env=_detector_env(),
         )
         exit_code = completed.returncode
         if output_path.exists():

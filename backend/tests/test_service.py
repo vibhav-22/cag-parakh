@@ -107,13 +107,19 @@ class JobStoreTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 report_root = Path(command[command.index("--out") + 1])
-                detector_dir = report_root / Path(command[2]).stem
+                # The real subprocess command is [python, "-c", <wrapper code>, input_path,
+                # ...flags]: see _script_command in backend/service.py, which inserts the
+                # script through -c so it can import sibling modules under the packaged
+                # build's restricted interpreter. The input path is the first argument
+                # after the wrapper's three fixed tokens rather than at index 2.
+                input_path = command[3]
+                detector_dir = report_root / Path(input_path).stem
                 detector_dir.mkdir(parents=True)
                 (detector_dir / "page_001_annotated.png").write_bytes(b"png")
                 (detector_dir / "report.json").write_text(json.dumps({
                     "tool": "whitener-detect",
                     "version": "1.1.0",
-                    "file": command[2],
+                    "file": input_path,
                     "requested_dpi": 200,
                     "document_probability": 0.72,
                     "max_page_probability": 0.72,
@@ -138,6 +144,48 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(result["findings_count"], 1)
             self.assertEqual(result["regions"][0]["page"], 1)
             self.assertEqual(result["artifacts"], [f"{job['id']}/page_001_annotated.png"])
+
+    def test_run_job_reads_whitener_report_despite_fail_over_exit_code(self) -> None:
+        # tamper_detect_local.py is always invoked with --fail-over, which makes
+        # it exit 3 (not 0) whenever a document's whitener probability lands at
+        # or above the review threshold -- i.e. exactly the documents this check
+        # exists to catch. That must still be read as a normal detection, not
+        # mistaken for a run that crashed.
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory))
+            job = store.create("sample.pdf", b"%PDF-1.7", ["tamper_scan"])
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                report_root = Path(command[command.index("--out") + 1])
+                input_path = command[3]
+                detector_dir = report_root / Path(input_path).stem
+                detector_dir.mkdir(parents=True)
+                (detector_dir / "report.json").write_text(json.dumps({
+                    "tool": "whitener-detect",
+                    "version": "1.1.0",
+                    "file": input_path,
+                    "requested_dpi": 200,
+                    "document_probability": 0.72,
+                    "max_page_probability": 0.72,
+                    "pages": [{
+                        "page": 1,
+                        "probability": 0.72,
+                        "indeterminate": False,
+                        "regions": [{"confidence": 0.72, "bbox_px": [10, 20, 30, 40]}],
+                        "size_px": [100, 200],
+                    }],
+                    "outputs": {},
+                }), encoding="utf-8")
+                return subprocess.CompletedProcess(command, 3, stdout="complete", stderr="")
+
+            with patch("backend.service.subprocess.run", side_effect=fake_run):
+                run_job(store, job["id"])
+
+            completed = store.get(job["id"])
+            assert completed is not None
+            result = completed["results"]["tamper_scan"]
+            self.assertEqual(result["summary"], "Likely whitener detected · 72% probability")
+            self.assertNotEqual(result.get("status"), "error")
 
     def test_removed_ink_analyzers_are_not_available(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

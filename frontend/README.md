@@ -1,98 +1,64 @@
-# vinext-starter
+# Parakh frontend
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+The reviewer-facing interface. A [vinext](https://github.com/cloudflare/vinext)
+app (Vite + React 19 with Next-compatible routing) that talks to the local
+FastAPI backend in `../backend`, plus the Electron shell in `electron/` that
+runs both as a desktop app.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
+- The backend running locally — see `../backend/README.md`
 
-## Quick Start
+## Development
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+`npm run dev` serves on port 3000 and proxies `/api/*` and `/health` to
+`BACKEND_URL` (default `http://127.0.0.1:8000`) via the rewrites in
+`next.config.ts`. Copy `.env.example` to `.env` if the backend listens
+elsewhere. Leave `NEXT_PUBLIC_API_URL` empty: API calls must go through the
+frontend origin so the session cookie applies.
 
-## Included Shape
+## Desktop app
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run demo
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Builds the frontend and opens the Electron window, which starts the backend and
+the Vinext server itself on ports chosen at launch. See `../DESKTOP_DEMO.md`.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+Employee releases are built from the repository root with
+`build/make-installer.ps1`; do not invoke electron-builder directly because the
+script first stages embedded Python, detectors, native dependencies, the
+packaged-mode marker, and the authorization public key. The resulting NSIS
+installer is written to `../release/windows`.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+The desktop path does **not** use the `next.config.ts` rewrites. Vinext resolves
+those while building, which would pin the backend to one port on every machine;
+`electron/frontend-gateway.cjs` routes `/api/*` and `/health` to the backend
+directly instead, so the launcher can use whatever port is free.
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## Layout
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+- `app/` — routes and components. `app/lib/` holds the shared pieces:
+  `session.tsx` (login gate), `launch-token.ts` (the per-launch header the
+  packaged backend requires), `format.ts`.
+- `electron/` — `main.cjs` launches and supervises the child processes;
+  `frontend-gateway.cjs` serves `dist/client` and proxies everything else.
+- `scripts/patch-vinext-windows.cjs` — narrow fix for a Vinext 0.0.50 bug that
+  404s `/assets/*` on Windows. Remove once Vinext normalizes those paths.
+- `public/fonts/` — self-hosted Geist. `next/font` does not work under vinext.
+- `dist/client`, `dist/server` — build output.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+## Commands
 
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- `npm run dev` — development server
+- `npm run build` — production build
+- `npm test` — build, then run the contract tests in `tests/`
+- `npm run lint` — eslint
+- `npm run demo` — patch, build, and launch the desktop app

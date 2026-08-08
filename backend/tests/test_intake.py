@@ -120,9 +120,13 @@ class PriorScreeningTests(unittest.TestCase):
 
 
 class PreflightTests(unittest.TestCase):
+    # Pre-flight reports only prior screenings the caller owns, so every job
+    # these tests create has to belong to the same account they check as.
+    OWNER = "user-1"
+
     def check(self, filename: str, payload: bytes):
         upload = UploadFile(filename=filename, file=BytesIO(payload))
-        return asyncio.run(_preflight_file(upload))
+        return asyncio.run(_preflight_file(upload, self.OWNER))
 
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -180,7 +184,7 @@ class PreflightTests(unittest.TestCase):
         name, converted, digest = asyncio.run(
             app_module._read_screening_upload(UploadFile(filename="scan.png", file=BytesIO(payload)))
         )
-        earlier = self.store.create(name, converted, ["metadata"], None, digest)
+        earlier = self.store.create(name, converted, ["metadata"], None, digest, owner_user_id=self.OWNER)
         self.store.update(earlier["id"], status="completed", results={"metadata": {"outcome": "clear"}})
 
         row = self.check("scan-again.png", payload)
@@ -189,7 +193,7 @@ class PreflightTests(unittest.TestCase):
 
     def test_pre_flight_surfaces_an_earlier_screening_of_the_same_file(self) -> None:
         payload = pdf_bytes()
-        earlier = self.store.create("original.pdf", payload, ["metadata"])
+        earlier = self.store.create("original.pdf", payload, ["metadata"], owner_user_id=self.OWNER)
         self.store.update(earlier["id"], status="completed", results={"metadata": {"outcome": "review"}})
 
         row = self.check("resubmitted.pdf", payload)

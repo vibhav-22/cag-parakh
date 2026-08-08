@@ -14,12 +14,14 @@ import {
   decisionLabel,
   docVerdict,
   documentTypeLabel,
+  downloadReport,
   flaggedSignalLabels,
   formatWhen,
   isFlagged,
   saveRunAsDefaults,
   shortLabel,
   titleCase,
+  viewReport,
 } from "../../lib/format";
 import { useBatch } from "../../lib/use-batch";
 import type { AnalysisSettings } from "../../advanced-settings";
@@ -315,9 +317,15 @@ export default function BatchPage() {
               )}
             </div>
             <div className="ba-exports">
-              <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.html`} target="_blank" rel="noreferrer">Batch report ↗</a>
-              <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.csv`}>CSV</a>
-              <a className="ba-export" href={`${API_URL}/api/v1/batches/${batch.id}/report.xlsx`}>Excel</a>
+              <button type="button" className="ba-export" onClick={() => viewReport(`${API_URL}/api/v1/batches/${batch.id}/report.html`)}>
+                Batch report ↗
+              </button>
+              <button type="button" className="ba-export" onClick={() => downloadReport(`${API_URL}/api/v1/batches/${batch.id}/report.csv`, `batch-${batch.id}-report.csv`)}>
+                CSV
+              </button>
+              <button type="button" className="ba-export" onClick={() => downloadReport(`${API_URL}/api/v1/batches/${batch.id}/report.xlsx`, `batch-${batch.id}-report.xlsx`)}>
+                Excel
+              </button>
               <button type="button" className="text-button" onClick={saveAsDefaults}>
                 {defaultsSaved ? "Saved as defaults ✓" : "Save these checks as my defaults"}
               </button>

@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def is_packaged() -> bool:
     """Return whether the backend is running as an installed desktop app."""
 
-    return os.getenv("PARAKH_PACKAGED", "").strip().lower() in {"1", "true", "yes"}
+    return (
+        os.getenv("PARAKH_PACKAGED", "").strip().lower() in {"1", "true", "yes"}
+        or (ROOT / ".parakh-packaged").is_file()
+    )
 
 
 def data_dir() -> Path:

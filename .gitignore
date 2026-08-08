@@ -42,6 +42,15 @@ license-data/
 # Downloaded local AI runtime and model weights
 backend/models/
 backend/runtime/
+
+# Third-party natives staged by build/stage-vendor.ps1 and installer outputs
+# assembled by build/make-installer.ps1. These are build inputs/outputs, not
+# repository content.
+vendor/
+release/
+frontend/release/
+frontend/.packaging/
+frontend/.packaging/
 # Signature detector weight (large binary; fetch per weights/README.md)
 tools/signature_analysis/weights/*.pt
 # Signature benchmark outputs
@@ -53,4 +62,7 @@ tools/signature_analysis/benchmark_out/
 # tools/flight/render_flight.py.
 tmp/flight-frames/
 tmp/flight-probe/
+tmp/packaging-inputs/
+tmp/model-pack-inputs/
+tmp/pyinstaller-admin/
 .gstack/

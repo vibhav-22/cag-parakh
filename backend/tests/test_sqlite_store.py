@@ -10,7 +10,16 @@ from unittest.mock import patch
 
 import backend.app as app_module
 from fastapi import HTTPException, Response
+from backend.access_control import AuthorizedUser
 from backend.service import JobStore
+
+
+class _Request:
+    """Stands in for the Starlette request the route reads the account from."""
+
+    def __init__(self, user_id: str) -> None:
+        self.state = type("State", (), {})()
+        self.state.user = AuthorizedUser(user_id, f"{user_id}@example.com", user_id)
 
 
 class SQLiteJobStoreTests(unittest.TestCase):
@@ -212,10 +221,12 @@ class SQLiteJobStoreTests(unittest.TestCase):
             for index in range(3):
                 store.create_batch(
                     [(f"document-{index}.pdf", b"%PDF-1.7")], ["metadata"],
+                    owner_user_id="alice",
                 )
+            request = _Request("alice")
             response = Response()
             with patch.object(app_module, "store", store):
-                page = app_module.list_batches(response, limit=2, offset=0, cursor=None)
+                page = app_module.list_batches(request, response, limit=2, offset=0, cursor=None)
 
                 self.assertEqual(len(page), 2)
                 self.assertEqual(response.headers["X-Total-Count"], "3")
@@ -223,13 +234,13 @@ class SQLiteJobStoreTests(unittest.TestCase):
 
                 next_response = Response()
                 next_page = app_module.list_batches(
-                    next_response, limit=2, offset=0, cursor=cursor,
+                    request, next_response, limit=2, offset=0, cursor=cursor,
                 )
                 self.assertEqual(len(next_page), 1)
                 self.assertNotIn("X-Next-Cursor", next_response.headers)
 
                 with self.assertRaises(HTTPException) as raised:
-                    app_module.list_batches(Response(), limit=2, offset=0, cursor="not-a-cursor")
+                    app_module.list_batches(request, Response(), limit=2, offset=0, cursor="not-a-cursor")
                 self.assertEqual(raised.exception.status_code, 422)
 
 

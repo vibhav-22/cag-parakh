@@ -23,9 +23,16 @@ cd frontend
 npm run demo
 ```
 
-The launcher builds the frontend, selects free loopback ports, starts both
-local services, and opens the desktop window. Closing the window stops both
-services. Demo data is stored in Electron's per-user application-data folder.
+The launcher builds the frontend, selects free loopback ports for all three
+local services, starts them, and opens the desktop window. Closing the window
+stops them. Demo data is stored in Electron's per-user application-data folder,
+and child process output is teed to `logs/parakh-<date>.log` beside it — error
+dialogs name that file.
+
+No fixed port is required. The backend used to be pinned to 8000 because Vinext
+resolves the `next.config.ts` rewrites while building; `electron/frontend-gateway.cjs`
+now routes `/api/*` and `/health` to the backend itself, so the launcher can use
+whatever ports are free.
 
 The demo command also applies a narrow Windows compatibility patch to Vinext
 0.0.50 before building. That release records static asset cache keys with
@@ -33,17 +40,17 @@ Windows backslashes, causing valid `/assets/*` requests to return 404. Remove
 the compatibility script after upgrading to a Vinext release that normalizes
 static-file paths on Windows.
 
-Only run one demo at a time. Do not run `npm run build` while the desktop demo
-is open: a rebuild replaces hashed frontend assets that the running production
-server is still referencing. Close the demo before rebuilding or restarting it.
+A second launch exits immediately rather than starting: two copies would share
+one SQLite job store and one data directory. Do not run `npm run build` while
+the desktop demo is open either — a rebuild replaces hashed frontend assets that
+the running production server is still referencing. Close the demo first.
 
-The source-tree demo leaves packaged-mode authorization off so the screening
-flow can be exercised locally. The real installer will set `PARAKH_PACKAGED=1`
-and must configure the HTTPS authorization service, preserving fail-closed
-installed-build behavior.
+The source-tree demo permits its development account only when
+`PARAKH_DEV_AUTH_BYPASS=1` is set explicitly. Packaged builds ignore that
+bypass and verify `%LOCALAPPDATA%\Parakh\authorization\authorization.json`
+against `resources\authorization\public-key.pem`.
 
-The desktop window opens on `/welcome`. To exercise login in the demo, start
-the local authorization service and set `PARAKH_AUTH_URL=http://127.0.0.1:8100`
-in the PowerShell session before running `npm run demo`. Without that variable,
-the demo uses its intentional local development account and the sign-in link
-opens the workspace immediately.
+The desktop window opens on `/welcome`. For a quick source demo set
+`PARAKH_DEV_AUTH_BYPASS=1`. To exercise real offline login, set
+`PARAKH_AUTH_FILE` and `PARAKH_AUTH_PUBLIC_KEY_FILE` to administrator-generated
+files before running `npm run demo`.

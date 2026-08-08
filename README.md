@@ -48,22 +48,22 @@ $env:VLM_MODEL = "Qwen3-VL-4B-Instruct"
 python -m uvicorn backend.app:app --reload
 ```
 
-Model weights are not committed to or bundled with this repository. A software installer can either deliver a separately licensed offline model pack or download the pinned model automatically on first use. See `backend/README.md` and `backend/.env.example` for configuration and privacy controls.
+Model weights are not committed to the repository or main installer. The pinned
+Qwen model, projector, tokenizer metadata, and llama.cpp runtimes ship only in a
+separate versioned offline model pack; the employee application never downloads
+them on first use. See `build/model-pack/README.md` for licensing and packaging.
 
-## Local analysis with approved accounts
+## Offline desktop application
 
-The web app supports multi-document batches, stored history, individual accounts, and per-laptop approval. Documents and detector work remain local; only account and device authorization use the central service.
+The Windows application performs document screening and authorization locally.
+Approved employees are stored as Argon2id password records in a company-issued,
+Ed25519-signed authorization file. The installer contains only the public
+verification key; the private signing key remains with an administrator.
 
-```powershell
-# Backend connected to the authorization service:
-$env:PARAKH_AUTH_URL = "https://accounts.example.com"
-python -m uvicorn backend.app:app --host 127.0.0.1
-
-# Frontend:
-cd frontend; npm run dev
-```
-
-Open `http://localhost:3000`, sign in with an approved account, and drop up to 50 PDFs or images at once. Development remains open when `PARAKH_AUTH_URL` and `PARAKH_PACKAGED` are unset. Installed builds set `PARAKH_PACKAGED=1` and fail closed unless an authorization service is configured. See `license_server/README.md` for setup and account management.
+The application, embedded Python, detector dependencies, and optional Qwen
+runtime need no Python, Node, Docker, WSL, or command prompt on employee
+laptops. See `INSTALLATION.md` for employees, `ADMINISTRATION.md` for
+authorization and releases, and `build/PILOT.md` for release acceptance.
 
 ## Extract fonts from a PDF
 

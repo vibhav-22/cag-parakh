@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { API_URL } from "./format";
 import { installLaunchToken, stripLaunchTokenFromUrl } from "./launch-token";
 import type { ServiceStatus, Session } from "./types";
+import NavLink from "../components/nav-link";
 
 // At module scope, not in an effect: this module is imported by the root
 // layout, so it evaluates before anything renders. Child effects run before
@@ -196,6 +197,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         </header>
         <section className="login-screen">
           <form className="login-card" onSubmit={login}>
+            <NavLink className="login-back" href="/welcome">
+              <span aria-hidden="true">←</span> Back
+            </NavLink>
             <h2>Sign in to continue</h2>
             {session.connectivity?.clock_tampered ? (
               // Without this the user sees a bare sign-in form and no reason

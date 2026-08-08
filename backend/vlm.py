@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 import fitz
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from .vlm_model_pack import MODEL_ALIAS, discover_model_pack, model_pack_status
+
 
 Risk = Literal["low", "medium", "high", "unknown"]
 
@@ -157,10 +159,14 @@ def _bounded_env_int(name: str, default: int, low: int, high: int) -> int:
 
 
 def get_vlm_config() -> VLMConfig:
+    pack = discover_model_pack()
+    enabled_value = os.getenv("VLM_ENABLED")
+    enabled = _env_flag("VLM_ENABLED") if enabled_value is not None else pack.ready
+    packaged_model = MODEL_ALIAS if pack.ready else "Qwen3-VL-4B-Instruct"
     return VLMConfig(
-        enabled=_env_flag("VLM_ENABLED"),
+        enabled=enabled,
         base_url=os.getenv("VLM_BASE_URL", "http://127.0.0.1:8080/v1").strip(),
-        model=os.getenv("VLM_MODEL", "Qwen3-VL-4B-Instruct").strip(),
+        model=os.getenv("VLM_MODEL", packaged_model).strip(),
         api_key=os.getenv("VLM_API_KEY", "").strip(),
         timeout_seconds=_bounded_env_int("VLM_TIMEOUT_SECONDS", 240, 10, 900),
         allow_remote=_env_flag("VLM_ALLOW_REMOTE"),
@@ -226,22 +232,45 @@ def _request_json(
 
 def get_vlm_status(*, ping: bool = False) -> dict[str, Any]:
     config = get_vlm_config()
+    pack = discover_model_pack()
+    pack_status = model_pack_status(pack)
     error = _configuration_error(config)
+    if not config.enabled and pack.installed and pack.errors:
+        error = "The installed visual model pack is incomplete or invalid."
+    elif not config.enabled and not pack.installed and _env_flag("PARAKH_PACKAGED"):
+        error = "The optional Qwen model pack is not installed. Document screening remains available."
     status: dict[str, Any] = {
         "enabled": config.enabled,
         "configured": error is None,
         "ready": False,
         "model": config.model if config.enabled else None,
         "message": error or "The VLM is configured.",
+        "source": "model_pack" if pack.ready else ("environment" if config.enabled else "disabled"),
+        "model_pack": pack_status,
+        "runtime": {
+            "name": pack_status["runtime"],
+            "version": pack_status["runtime_version"],
+            "backend": pack_status["runtime_backend"],
+            "device": pack_status["device"],
+            "path": pack_status["runtime_path"],
+        },
+        "dependency_ready": pack.ready if pack.installed else None,
     }
     if error or not ping:
-        status["ready"] = error is None
         return status
     try:
-        _request_json(f"{config.base_url.rstrip('/')}/models", config, timeout=3)
+        models = _request_json(f"{config.base_url.rstrip('/')}/models", config, timeout=3)
     except VLMError as exc:
         status["message"] = str(exc)
         return status
+    if pack.ready:
+        listed = models.get("data")
+        identifiers = {
+            item.get("id") for item in listed if isinstance(item, dict) and isinstance(item.get("id"), str)
+        } if isinstance(listed, list) else set()
+        if config.model not in identifiers:
+            status["message"] = "The local VLM server is running but the pinned model is not loaded."
+            return status
     status.update({"ready": True, "message": "The visual language model is ready."})
     return status
 
