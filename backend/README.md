@@ -1,12 +1,29 @@
-# Backend API
+# Parakh backend
 
-This FastAPI service queues PDF and image screening jobs and runs each detector in a separate Python process. JPG, JPEG, PNG, WebP, and TIFF inputs are validated and normalized to PDF locally so every existing detector and review view can process them consistently.
+This local FastAPI service handles document intake, analyzer orchestration, persistent projects/batches/jobs, document rendering, reviewer decisions, exports, offline authorization, diagnostics, and optional Visual AI document questions. JPG, JPEG, PNG, WebP, and TIFF inputs are validated and normalized to PDF so every detector and review view uses one format.
+
+## Stack and code map
+
+Python 3.13 is the release target. FastAPI, Uvicorn, and Pydantic provide the API; SQLite stores indexed state and complete JSON payloads. Processing uses PyMuPDF, pypdf, pdfplumber, Pillow, OpenCV, NumPy, SciPy, Tesseract/Poppler, and zxing-cpp. InsightFace/ONNX Runtime handle face embeddings and openpyxl builds XLSX reports.
+
+| File | Responsibility |
+| --- | --- |
+| `app.py` | Routes, validation, sessions, image conversion/rendering |
+| `service.py` | SQLite store, queues, analyzer subprocesses, recovery, settings |
+| `models.py`, `checks.py` | State, normalized results, and deterministic criteria |
+| `reporting.py` | JSON/HTML/CSV/XLSX exports |
+| `access_control.py`, `auth_manifest.py` | Signed authorization and protected sessions |
+| `dependencies.py` | Native binary/model discovery and diagnostics |
+| `qr_identity.py`, `photo_identity.py` | Cross-document identity matching |
+| `vlm*.py` | Optional multimodal Q&A and model-pack integration |
+| `tests/` | API, store, detector, authorization, reporting, and VLM tests |
 
 ## Run
 
 ```powershell
 # From the repository root:
 python -m pip install -r backend/requirements.txt
+$env:PARAKH_DEV_AUTH_BYPASS = "1"
 python -m uvicorn backend.app:app --reload
 
 # Or, when your current directory is backend/:
@@ -14,6 +31,8 @@ python -m uvicorn --app-dir .. backend.app:app --reload
 ```
 
 Use `http://127.0.0.1:8000/docs` for the API interface. Submit a PDF or supported image to `POST /api/v1/jobs`, then poll `GET /api/v1/jobs/{job_id}`.
+
+`PARAKH_DEV_AUTH_BYPASS=1` creates a source-only local development identity and is ignored in packaged mode. Without it, valid signed authorization and Windows DPAPI support are required. Packaged mode also disables `/docs` and `/redoc`.
 
 ## Visual AI model
 
@@ -46,7 +65,7 @@ The model is an advisory review layer. It does not replace the deterministic det
 - On the first launch after upgrading, legacy `*.job.json`, `*.batch.json`, `*.project.json`, and flat PDFs are imported into SQLite and the sharded document tree. The old files are retained as a rollback copy. Jobs interrupted while queued or running are reset to the queue at analyzer granularity, preserving checks that already reached a terminal state.
 - `GET /api/v1/batches` and `GET /api/v1/projects/{project_id}/batches` accept `limit` (up to 200), `cursor`, or `offset`. Paginated responses retain the existing JSON-array body and return `X-Total-Count` plus `X-Next-Cursor` headers, so older clients remain compatible while large local histories can use index-backed keyset pagination.
 - Analysis runs on a bounded worker pool (`ANALYSIS_WORKERS`, default 2) so a large batch queues instead of launching every detector at once.
-- Set `PARAKH_AUTH_URL` to the HTTPS URL of the authorization service. Clients sign in with an approved email/password and the installation registers a random device ID. Browser cookies contain only an opaque, short-lived local session ID; central access tokens are never exposed to the frontend. Installed builds set `PARAKH_PACKAGED=1` and fail closed when authorization is missing. Development stays open only when both settings are absent.
+- Authorization is fully offline. Clients sign in against an Ed25519-signed `authorization.json`; the installation registers a random device ID and browser cookies contain only an opaque local session ID. Installed builds set `PARAKH_PACKAGED=1` and fail closed when authorization is missing. Source development requires the explicit bypass above or real signed files.
 - QR scanning effort is tunable with `QR_DPIS` / `QR_ROTATIONS` (defaults `300` and `0,90` for responsiveness).
 - Document-photo search effort is a per-run setting (`photo_detection.effort`: `low` / `medium` / `high`, default `medium`). `low` reads only the images embedded in the PDF and never renders a page, so a miss is reported as inconclusive rather than a fail; `medium` renders every page only when the embedded pass finds nothing; `high` always renders at 400 dpi and sweeps densely, which is what finds a second portrait beside the first. Measured on this corpus: roughly 2–6 s, 3–9 s, and 8–35 s per short document, with a 43-page file taking 166 s at `high` against the 360 s detector timeout.
 - Face-identity matching across a batch uses `PHOTO_SIMILARITY_THRESHOLD` (default `0.35`) and `PHOTO_IDENTITY_DET_THRESHOLD` (default `0.3`, the face-detector floor used when re-detecting inside an already-cropped photo).
@@ -75,3 +94,35 @@ PDF endpoint uses inline content disposition, so opening it does not force a
 download.
 
 The API exposes these single-document screening checks: metadata, QR presence, fonts, moire, same-phone consistency, correction-fluid (whitener) detection, readability, and document-photo detection. Visual document Q&A is a separate operation. The photo result retains a detected passport-style crop as a job artifact so the review workspace can show it inline; a missing or low-quality photo is sent for review. The whitener result includes a document probability, per-page candidates, normalized overlay regions, and links to annotated page/PDF artifacts. Reference/batch tools and the standalone ink-analysis utilities remain command-line workflows.
+
+## Processing, storage, and configuration
+
+Preflight validates file type, size, decoded image dimensions, and duplicate hashes. Intake normalizes the document, persists it, and queues analyzer work. `ANALYSIS_WORKERS` controls concurrent jobs (default 2); `ANALYZER_WORKERS` controls detector subprocesses per job (default 8). Interrupted queued/running work is recovered on startup at analyzer granularity.
+
+SQLite tables are `projects`, `batches`, `jobs`, and `store_meta`. Indexed lookup fields sit beside a complete `payload_json`. The store uses WAL, foreign keys, a 30-second busy timeout, and `synchronous=FULL`. Source data defaults to `backend/data/`; installed data defaults to `%LOCALAPPDATA%\Parakh\data\`; `PARAKH_DATA_DIR` overrides both. Stop the service before copying the entire directory for backup or restore.
+
+Important variables are:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PARAKH_DEV_AUTH_BYPASS` | off | Source-only development identity |
+| `PARAKH_AUTH_FILE`, `PARAKH_AUTH_PUBLIC_KEY_FILE` | mode-specific | Offline authorization files |
+| `PARAKH_DATA_DIR` | mode-specific | Mutable data location |
+| `PARAKH_PACKAGED`, `PARAKH_LAUNCH_TOKEN` | launcher-managed | Packaged security controls |
+| `CORS_ORIGINS`, `COOKIE_SECURE` | loopback/off | Browser and cookie policy |
+| `ANALYSIS_WORKERS`, `ANALYZER_WORKERS` | `2`, `8` | Job and analyzer concurrency |
+| `QR_DPIS`, `QR_ROTATIONS` | `300`, `0,90` | Fast QR scan |
+| `QR_DEEP_DPIS`, `QR_DEEP_ROTATIONS` | `250,350,450`, all rotations | QR miss escalation |
+| `QR_DEEP_RESCAN`, `QR_DEEP_TIMEOUT_SECONDS` | `1`, `1200` | Deep QR behavior |
+| `PHOTO_SIMILARITY_THRESHOLD` | `0.35` | Batch face match |
+| `PHOTO_IDENTITY_DET_THRESHOLD` | `0.3` | Face detection floor |
+
+Native overrides are `PARAKH_TESSERACT`, `PDFTOPPM`, `PARAKH_PDFINFO`, `PARAKH_INSIGHTFACE_MODEL`, and `INSIGHTFACE_HOME`. Inspect resolved paths and lost coverage at `GET /api/v1/diagnostics/dependencies`. VLM options also include `VLM_API_KEY`, `VLM_TIMEOUT_SECONDS`, `VLM_MAX_CONCURRENCY`, `VLM_OCR_MAX_PAGES`, `VLM_OCR_DPI`, `VLM_OCR_LANGUAGES`, and `VLM_JSON_MODE`.
+
+## Tests
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest backend\tests
+```
+
+Use the exact release dependencies in [`../build/requirements-runtime.lock`](../build/requirements-runtime.lock) and the acceptance procedure in [`../build/PILOT.md`](../build/PILOT.md) for installer releases.
